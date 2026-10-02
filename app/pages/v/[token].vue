@@ -1,0 +1,570 @@
+<script setup lang="ts">
+import type { MapMarker } from '~~/shared/types/map'
+import type { MemberPlace, MemberTripView } from '~~/shared/types/trip'
+import type { TimelineItem } from '~/components/itinerary/ItineraryTimeline.vue'
+
+definePageMeta({ layout: false })
+
+const route = useRoute()
+const token = route.params.token as string
+const toast = useToast()
+
+const { data: view, error } = await useFetch<MemberTripView>(`/api/v/${token}`, { key: `member-${token}` })
+const { data: places, refresh: refreshPlaces } = await useFetch<MemberPlace[]>(`/api/v/${token}/places`, {
+  key: `member-places-${token}`,
+  default: () => [],
+})
+
+const me = computed(() => view.value?.member)
+const trip = computed(() => view.value?.trip)
+const isOpen = computed(() => !!view.value?.is_open)
+const accepted = computed(() => me.value?.status === 'accepted')
+const tz = computed(() => trip.value?.time_zone ?? 'UTC')
+
+const busy = ref<string | null>(null)
+const declineOpen = ref(false)
+const tab = ref<'lugares' | 'itinerario'>('lugares')
+const sortBy = ref<'votes' | 'order'>('votes')
+const selectedId = ref<string | null>(null)
+const hoverId = ref<string | null>(null)
+const detail = ref<MemberPlace | null>(null)
+const detailOpen = computed({ get: () => !!detail.value, set: (v) => { if (!v) detail.value = null } })
+
+// ---------- SEO / vista previa en WhatsApp ----------
+useSeoMeta({
+  title: () => trip.value ? `Viaje: ${trip.value.name}` : 'Viaje',
+  ogTitle: () => trip.value ? `✈️ ${trip.value.name}` : 'Viaje',
+  description: () => me.value ? `${me.value.name}, te sumaron a este viaje. Confirma si vas y vota por los lugares.` : '',
+  ogDescription: () => me.value ? `${me.value.name}, te sumaron a este viaje. Confirma si vas y vota por los lugares.` : '',
+  robots: 'noindex, nofollow',
+})
+useHead({ meta: [{ name: 'referrer', content: 'no-referrer' }] })
+
+// ---------- Lugares para votar ----------
+const placeById = computed(() => new Map((places.value ?? []).map(p => [p.id, p])))
+const votable = computed(() => (places.value ?? []).filter(p => p.votable))
+const orderOf = computed(() => new Map(votable.value.map((p, i) => [p.id, i + 1])))
+const sortedVotable = computed(() => {
+  const arr = [...votable.value]
+  if (sortBy.value === 'votes') arr.sort((a, b) => b.vote_count - a.vote_count || (orderOf.value.get(a.id)! - orderOf.value.get(b.id)!))
+  return arr
+})
+const myVotes = computed(() => votable.value.filter(p => p.voted).length)
+
+const placeMarkers = computed<MapMarker[]>(() => votable.value.map(p => ({
+  id: p.id,
+  latitude: p.latitude,
+  longitude: p.longitude,
+  label: String(orderOf.value.get(p.id)),
+  tone: p.voted ? 'success' : 'primary',
+  title: p.name,
+})))
+
+const canVote = computed(() => accepted.value && isOpen.value)
+
+async function toggleVote(p: MemberPlace) {
+  if (!canVote.value) return
+  busy.value = p.id
+  try {
+    places.value = await $fetch<MemberPlace[]>(`/api/v/${token}/places/${p.id}/vote`, { method: p.voted ? 'DELETE' : 'POST' })
+  }
+  catch (err) {
+    toast.add({ color: 'error', title: 'No se pudo guardar tu voto', description: errorMessage(err) })
+    await refreshPlaces()
+  }
+  finally {
+    busy.value = null
+  }
+}
+
+// ---------- Confirmación ----------
+async function respond(status: 'accepted' | 'declined') {
+  busy.value = status
+  try {
+    const was = me.value?.status
+    view.value = await $fetch<MemberTripView>(`/api/v/${token}/rsvp`, { method: 'POST', body: { status } })
+    declineOpen.value = false
+    await refreshPlaces()
+    if (status === 'accepted') {
+      toast.add({ color: 'success', title: was === 'declined' ? '¡Qué bueno que vuelves!' : '¡Estás dentro!', description: 'Ahora puedes votar por los lugares.', icon: 'i-lucide-plane' })
+    }
+    else {
+      toast.add({ title: 'Respuesta guardada', description: 'Gracias por avisar.' })
+    }
+  }
+  catch (err) {
+    toast.add({ color: 'error', title: 'No se pudo guardar tu respuesta', description: errorMessage(err) })
+    await refreshNuxtData(`member-${token}`)
+  }
+  finally {
+    busy.value = null
+  }
+}
+
+// ---------- Itinerario ----------
+const days = computed(() => trip.value ? tripDays(trip.value.start_date, trip.value.end_date) : [])
+const today = computed(() => todayIn(tz.value))
+const itDay = ref<string>('all')
+watch(days, (d) => {
+  // Si el viaje está en curso, partir mostrando el día de hoy
+  if (itDay.value === 'all' && d.includes(today.value)) itDay.value = today.value
+}, { immediate: true })
+
+const itinerary = computed(() => view.value?.itinerary ?? [])
+const numbers = computed(() => {
+  const map = new Map<string, number>()
+  const count = new Map<string, number>()
+  for (const s of itinerary.value) {
+    if (!s.place_id || !placeById.value.has(s.place_id)) continue
+    const n = (count.get(s.day) ?? 0) + 1
+    count.set(s.day, n)
+    map.set(s.id, n)
+  }
+  return map
+})
+const timelineItems = computed<TimelineItem[]>(() => itinerary.value.map(s => ({
+  id: s.id,
+  day: s.day,
+  start_time: s.start_time,
+  end_time: s.end_time,
+  title: s.title,
+  subtitle: s.place_id ? placeById.value.get(s.place_id)?.address : null,
+  notes: s.notes,
+  place_id: s.place_id,
+  number: itDay.value === 'all' ? undefined : numbers.value.get(s.id),
+})))
+const itStops = computed(() =>
+  itinerary.value.filter(s => s.place_id && placeById.value.has(s.place_id) && (itDay.value === 'all' || s.day === itDay.value)),
+)
+const itMarkers = computed<MapMarker[]>(() => {
+  const seen = new Set<string>()
+  const out: MapMarker[] = []
+  for (const s of itStops.value) {
+    if (seen.has(s.place_id!)) continue
+    seen.add(s.place_id!)
+    const p = placeById.value.get(s.place_id!)!
+    out.push({
+      id: p.id,
+      latitude: p.latitude,
+      longitude: p.longitude,
+      label: itDay.value === 'all' ? String(days.value.indexOf(s.day) + 1) : String(numbers.value.get(s.id) ?? ''),
+      tone: 'primary',
+      title: p.name,
+    })
+  }
+  return out
+})
+const itRoute = computed<[number, number][] | null>(() => itDay.value === 'all'
+  ? null
+  : itStops.value.map(s => {
+      const p = placeById.value.get(s.place_id!)!
+      return [p.longitude, p.latitude] as [number, number]
+    }))
+const itSelected = ref<string | null>(null)
+const itHover = ref<string | null>(null)
+const stopsAt = (placeId: string) => itStops.value.filter(s => s.place_id === placeId)
+
+const dayChips = computed(() => [
+  { label: 'Todo', value: 'all' },
+  ...days.value.map((d, i) => ({ label: d === today.value ? `Hoy · Día ${i + 1}` : `Día ${i + 1}`, value: d })),
+])
+</script>
+
+<template>
+  <div class="min-h-dvh bg-default">
+    <!-- Link inválido -->
+    <div v-if="error || !view" class="flex min-h-dvh items-center justify-center px-6">
+      <div class="max-w-sm text-center">
+        <UIcon name="i-lucide-map-pin-off" class="size-12 text-muted" />
+        <h1 class="mt-4 text-xl font-semibold">
+          Link no encontrado
+        </h1>
+        <p class="mt-2 text-muted">
+          El link no es válido o fue reemplazado. Pide a quien organiza el viaje que te lo envíe de nuevo.
+        </p>
+      </div>
+    </div>
+
+    <template v-else-if="me && trip">
+      <!-- Portada -->
+      <header class="bg-gradient-to-br from-primary-600 to-primary-800 text-white dark:from-primary-800 dark:to-primary-950">
+        <div class="mx-auto max-w-5xl px-4 pb-10 pt-10 sm:pb-14 sm:pt-14">
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur">
+            <UIcon name="i-lucide-plane" class="size-3.5" />
+            {{ tripCountdown(trip.start_date, trip.end_date, trip.time_zone) }}
+          </span>
+          <h1 class="mt-4 text-balance text-3xl font-bold leading-tight sm:text-5xl">
+            {{ trip.name }}
+          </h1>
+          <div class="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-white/85">
+            <span v-if="trip.destination" class="flex items-center gap-1.5">
+              <UIcon name="i-lucide-globe" class="size-4" /> {{ trip.destination }}
+            </span>
+            <span class="flex items-center gap-1.5">
+              <UIcon name="i-lucide-calendar-range" class="size-4" /> {{ formatDateRange(trip.start_date, trip.end_date) }}
+            </span>
+          </div>
+          <p class="mt-6 text-lg">
+            Hola, <span class="font-semibold">{{ me.name }}</span> 👋
+          </p>
+          <p v-if="trip.description" class="mt-2 max-w-2xl whitespace-pre-line text-white/85">
+            {{ trip.description }}
+          </p>
+        </div>
+      </header>
+
+      <main class="mx-auto max-w-5xl px-4 pb-16">
+        <!-- Confirmación -->
+        <UCard class="-mt-6 shadow-lg">
+          <div v-if="me.status === 'pending'" class="flex flex-col items-center gap-4 text-center sm:flex-row sm:justify-between sm:text-left">
+            <div>
+              <p class="text-lg font-semibold">
+                {{ isOpen ? '¿Te sumas al viaje?' : 'El plazo para confirmar terminó' }}
+              </p>
+              <p class="text-sm text-muted">
+                <template v-if="isOpen">
+                  Confirma para poder votar. Tienes hasta el {{ formatDateTime(trip.rsvp_deadline, tz, true) }} (hora del destino).
+                </template>
+                <template v-else>
+                  Si aún quieres sumarte, habla con quien organiza.
+                </template>
+              </p>
+            </div>
+            <div v-if="isOpen" class="flex w-full shrink-0 gap-2 sm:w-auto">
+              <UButton size="lg" icon="i-lucide-check" class="flex-1 justify-center sm:flex-none" :loading="busy === 'accepted'" :disabled="!!busy" @click="respond('accepted')">
+                ¡Sí, voy!
+              </UButton>
+              <UButton size="lg" color="neutral" variant="outline" class="flex-1 justify-center sm:flex-none" :loading="busy === 'declined'" :disabled="!!busy" @click="respond('declined')">
+                No podré ir
+              </UButton>
+            </div>
+          </div>
+
+          <div v-else-if="me.status === 'accepted'" class="flex flex-col items-center gap-3 text-center sm:flex-row sm:justify-between sm:text-left">
+            <div class="flex items-center gap-3">
+              <div class="flex size-10 shrink-0 items-center justify-center rounded-full bg-success/10">
+                <UIcon name="i-lucide-check" class="size-5 text-success" />
+              </div>
+              <div class="text-left">
+                <p class="font-semibold">
+                  ¡Estás dentro del viaje!
+                </p>
+                <p class="text-sm text-muted">
+                  {{ isOpen ? `Puedes votar hasta el ${formatDateTime(trip.rsvp_deadline, tz, true)}.` : 'La votación ya cerró.' }}
+                </p>
+              </div>
+            </div>
+            <UButton v-if="isOpen" size="sm" color="neutral" variant="ghost" icon="i-lucide-x" @click="declineOpen = true">
+              Ya no podré ir
+            </UButton>
+          </div>
+
+          <div v-else class="flex flex-col items-center gap-3 text-center sm:flex-row sm:justify-between sm:text-left">
+            <div>
+              <p class="font-semibold">
+                Gracias por avisar
+              </p>
+              <p class="text-sm text-muted">
+                Registramos que no vas a este viaje.
+              </p>
+            </div>
+            <UButton v-if="isOpen" variant="soft" icon="i-lucide-rotate-ccw" :loading="busy === 'accepted'" @click="respond('accepted')">
+              Cambié de opinión, ¡sí voy!
+            </UButton>
+          </div>
+        </UCard>
+
+        <!-- Pestañas -->
+        <div class="mt-8 flex gap-1 border-b border-default">
+          <button
+            v-for="t in [{ v: 'lugares', l: 'Lugares', i: 'i-lucide-map-pin', n: votable.length }, { v: 'itinerario', l: 'Itinerario', i: 'i-lucide-calendar-days', n: 0 }]"
+            :key="t.v"
+            type="button"
+            class="-mb-px flex items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition"
+            :class="tab === t.v ? 'border-primary text-primary' : 'border-transparent text-muted hover:text-default'"
+            @click="tab = t.v as 'lugares' | 'itinerario'"
+          >
+            <UIcon :name="t.i" class="size-4" />
+            {{ t.l }}
+            <UBadge v-if="t.n" size="sm" color="neutral" variant="subtle">
+              {{ t.n }}
+            </UBadge>
+            <UIcon v-if="t.v === 'itinerario' && !view.itinerary_published" name="i-lucide-lock" class="size-3.5" />
+          </button>
+        </div>
+
+        <!-- Lugares -->
+        <section v-show="tab === 'lugares'" class="pt-5">
+          <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 class="text-lg font-semibold">
+                ¿Qué quieres conocer?
+              </h2>
+              <p class="text-sm text-muted">
+                Vota por todos los lugares que te interesen (un voto por lugar). Pasa el mouse o toca un punto del mapa para ver su ficha.
+              </p>
+            </div>
+            <div class="flex items-center gap-3">
+              <span v-if="accepted" class="text-sm text-muted">Tus votos: <b class="text-default">{{ myVotes }}</b></span>
+              <USelect
+                v-model="sortBy"
+                size="sm"
+                :items="[{ label: 'Más votados', value: 'votes' }, { label: 'Orden del organizador', value: 'order' }]"
+                class="w-48"
+              />
+            </div>
+          </div>
+
+          <UAlert
+            v-if="!accepted && isOpen && votable.length"
+            class="mb-4"
+            color="primary"
+            variant="subtle"
+            icon="i-lucide-info"
+            description="Confirma que vas al viaje para poder votar."
+          />
+          <UAlert
+            v-else-if="!isOpen && votable.length"
+            class="mb-4"
+            color="neutral"
+            variant="subtle"
+            icon="i-lucide-lock"
+            description="La votación terminó. Estos fueron los resultados."
+          />
+
+          <UEmpty
+            v-if="!votable.length"
+            icon="i-lucide-map"
+            title="Todavía no hay lugares para votar"
+            description="Cuando el organizador agregue destinos, aparecerán aquí."
+            class="rounded-lg border border-dashed border-default py-12"
+          />
+
+          <template v-else>
+            <div class="mb-5 h-96 overflow-hidden rounded-xl border border-default sm:h-[420px]">
+              <TripMap
+                :markers="placeMarkers"
+                :selected-id="selectedId"
+                :highlight-id="hoverId"
+                @select="selectedId = $event"
+              >
+                <template #card="{ marker, pinned, close }">
+                  <UCard v-if="placeById.get(marker.id)" :ui="{ body: 'p-3 sm:p-3 max-h-[240px] overflow-y-auto', footer: 'px-3 py-2 sm:px-3' }" class="shadow-xl">
+                    <PlaceInfoCard
+                      :name="placeById.get(marker.id)!.name"
+                      :address="placeById.get(marker.id)!.address"
+                      :category="placeById.get(marker.id)!.category"
+                      :photo-url="placeById.get(marker.id)!.photo_url"
+                      :info="placeById.get(marker.id)!.info"
+                      compact
+                    />
+                    <template #footer>
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="flex items-center gap-1 text-xs font-medium">
+                          <UIcon name="i-lucide-heart" class="size-3.5 text-primary" />
+                          {{ placeById.get(marker.id)!.vote_count }} {{ placeById.get(marker.id)!.vote_count === 1 ? 'voto' : 'votos' }}
+                        </span>
+                        <div v-if="pinned" class="flex gap-1">
+                          <UButton
+                            v-if="canVote"
+                            size="xs"
+                            :color="placeById.get(marker.id)!.voted ? 'success' : 'primary'"
+                            :variant="placeById.get(marker.id)!.voted ? 'soft' : 'solid'"
+                            :icon="placeById.get(marker.id)!.voted ? 'i-lucide-check' : 'i-lucide-heart'"
+                            :loading="busy === marker.id"
+                            @click="toggleVote(placeById.get(marker.id)!)"
+                          >
+                            {{ placeById.get(marker.id)!.voted ? 'Votado' : 'Votar' }}
+                          </UButton>
+                          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" aria-label="Cerrar" @click="close" />
+                        </div>
+                      </div>
+                    </template>
+                  </UCard>
+                </template>
+              </TripMap>
+            </div>
+
+            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <article
+                v-for="p in sortedVotable"
+                :key="p.id"
+                class="flex flex-col overflow-hidden rounded-xl bg-default ring-1 transition"
+                :class="[
+                  p.voted ? 'ring-2 ring-success' : 'ring-default',
+                  hoverId === p.id || selectedId === p.id ? 'shadow-lg' : '',
+                ]"
+                @mouseenter="hoverId = p.id"
+                @mouseleave="hoverId = null"
+              >
+                <button type="button" class="relative block h-36 w-full bg-elevated text-left" @click="selectedId = p.id">
+                  <img v-if="p.photo_url" :src="p.photo_url" :alt="p.name" class="size-full object-cover" loading="lazy">
+                  <div v-else class="flex size-full items-center justify-center bg-gradient-to-br from-primary-100 to-primary-200 dark:from-primary-900 dark:to-primary-950">
+                    <UIcon name="i-lucide-map-pin" class="size-10 text-primary/60" />
+                  </div>
+                  <span class="absolute left-2 top-2 flex size-7 items-center justify-center rounded-full border-2 border-white text-xs font-bold text-white shadow" :class="p.voted ? 'bg-success' : 'bg-primary'">
+                    {{ orderOf.get(p.id) }}
+                  </span>
+                  <UBadge v-if="p.in_itinerary && view.itinerary_published" color="neutral" class="absolute right-2 top-2" icon="i-lucide-calendar-check" size="sm">
+                    En el itinerario
+                  </UBadge>
+                </button>
+                <div class="flex flex-1 flex-col p-4">
+                  <h3 class="font-semibold leading-snug">
+                    {{ p.name }}
+                  </h3>
+                  <p v-if="p.address" class="mt-0.5 line-clamp-1 text-xs text-muted">
+                    {{ p.address }}
+                  </p>
+                  <p v-if="p.info?.history" class="mt-2 line-clamp-3 text-sm text-muted">
+                    {{ p.info.history }}
+                  </p>
+                  <p v-else-if="p.description" class="mt-2 line-clamp-3 text-sm text-muted">
+                    {{ p.description }}
+                  </p>
+                  <div class="mt-auto flex items-center justify-between gap-2 pt-4">
+                    <UButton size="sm" color="neutral" variant="link" class="-ml-2.5" @click="detail = p">
+                      Ver ficha
+                    </UButton>
+                    <UButton
+                      v-if="canVote"
+                      size="sm"
+                      :color="p.voted ? 'success' : 'primary'"
+                      :variant="p.voted ? 'soft' : 'outline'"
+                      :icon="p.voted ? 'i-lucide-check' : 'i-lucide-heart'"
+                      :loading="busy === p.id"
+                      :disabled="!!busy && busy !== p.id"
+                      :aria-pressed="p.voted"
+                      @click="toggleVote(p)"
+                    >
+                      {{ p.voted ? 'Votado' : 'Votar' }} · {{ p.vote_count }}
+                    </UButton>
+                    <span v-else class="flex items-center gap-1 text-sm font-medium">
+                      <UIcon name="i-lucide-heart" class="size-4 text-primary" />
+                      {{ p.vote_count }}
+                    </span>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </template>
+        </section>
+
+        <!-- Itinerario -->
+        <section v-show="tab === 'itinerario'" class="pt-5">
+          <UEmpty
+            v-if="!view.itinerary_published"
+            icon="i-lucide-calendar-clock"
+            title="El itinerario está en preparación"
+            description="Quien organiza el viaje lo publicará cuando esté listo. Mientras tanto, vota por los lugares que quieres conocer."
+            class="rounded-lg border border-dashed border-default py-12"
+          />
+          <template v-else>
+            <div class="-mx-1 mb-4 flex gap-1.5 overflow-x-auto px-1 pb-1">
+              <UButton
+                v-for="c in dayChips"
+                :key="c.value"
+                size="sm"
+                :color="itDay === c.value ? 'primary' : 'neutral'"
+                :variant="itDay === c.value ? 'solid' : 'outline'"
+                class="shrink-0"
+                @click="itDay = c.value"
+              >
+                {{ c.label }}
+              </UButton>
+            </div>
+            <p class="mb-3 text-xs text-muted">
+              Horarios en hora local del destino.
+            </p>
+            <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+              <ItineraryTimeline
+                class="order-2 lg:order-1"
+                :days="days"
+                :items="timelineItems"
+                :day="itDay"
+                :highlight-id="itHover"
+                empty-text="Día libre."
+                @hover="itHover = $event"
+                @focus="itSelected = $event"
+              />
+              <div class="order-1 lg:order-2">
+                <div class="h-72 overflow-hidden rounded-xl border border-default sm:h-[420px] lg:sticky lg:top-4">
+                  <TripMap
+                    :markers="itMarkers"
+                    :route="itRoute"
+                    :selected-id="itSelected"
+                    :highlight-id="itHover"
+                    :fit-key="itDay"
+                    @select="itSelected = $event"
+                  >
+                    <template #card="{ marker, pinned, close }">
+                      <UCard v-if="placeById.get(marker.id)" :ui="{ body: 'p-3 sm:p-3 max-h-[300px] overflow-y-auto' }" class="shadow-xl">
+                        <p v-for="s in stopsAt(marker.id)" :key="s.id" class="mb-1 text-xs font-semibold text-primary">
+                          Día {{ days.indexOf(s.day) + 1 }}{{ s.start_time ? ` · ${s.start_time}` : '' }}{{ s.end_time ? ` – ${s.end_time}` : '' }}
+                        </p>
+                        <PlaceInfoCard
+                          :name="placeById.get(marker.id)!.name"
+                          :address="placeById.get(marker.id)!.address"
+                          :photo-url="placeById.get(marker.id)!.photo_url"
+                          :info="placeById.get(marker.id)!.info"
+                          compact
+                        />
+                        <div v-if="pinned" class="mt-2 flex justify-end gap-1">
+                          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-file-text" @click="detail = placeById.get(marker.id)!">
+                            Ficha
+                          </UButton>
+                          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click="close">
+                            Cerrar
+                          </UButton>
+                        </div>
+                      </UCard>
+                    </template>
+                  </TripMap>
+                </div>
+              </div>
+            </div>
+          </template>
+        </section>
+      </main>
+
+      <UModal v-model:open="detailOpen" title="Ficha del lugar">
+        <template #body>
+          <PlaceInfoCard
+            v-if="detail"
+            :name="detail.name"
+            :address="detail.address"
+            :category="detail.category"
+            :description="detail.description"
+            :photo-url="detail.photo_url"
+            :info="detail.info"
+            :latitude="detail.latitude"
+            :longitude="detail.longitude"
+          />
+        </template>
+        <template v-if="detail?.votable && canVote" #footer>
+          <div class="flex w-full items-center justify-between">
+            <span class="text-sm text-muted">{{ detail.vote_count }} {{ detail.vote_count === 1 ? 'voto' : 'votos' }}</span>
+            <UButton
+              :color="detail.voted ? 'success' : 'primary'"
+              :variant="detail.voted ? 'soft' : 'solid'"
+              :icon="detail.voted ? 'i-lucide-check' : 'i-lucide-heart'"
+              :loading="busy === detail.id"
+              @click="toggleVote(detail).then(() => { detail = placeById.get(detail!.id) ?? null })"
+            >
+              {{ detail.voted ? 'Votado' : 'Votar por este lugar' }}
+            </UButton>
+          </div>
+        </template>
+      </UModal>
+
+      <ConfirmModal
+        v-model:open="declineOpen"
+        title="¿Ya no vas al viaje?"
+        :description="myVotes ? `Se borrarán tus ${myVotes} votos. Puedes volver a confirmar mientras el plazo esté abierto.` : 'Puedes volver a confirmar mientras el plazo esté abierto.'"
+        confirm-label="Sí, no voy"
+        :loading="busy === 'declined'"
+        @confirm="respond('declined')"
+      />
+    </template>
+  </div>
+</template>

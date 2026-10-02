@@ -1,0 +1,31 @@
+{
+  "name": "viajes",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck",
+    "test:db": "node supabase/tests/rules.test.mjs",
+    "db:types": "supabase gen types typescript --linked --schema public > shared/types/database.types.ts"
+  },
+  "dependencies": {
+    "@iconify-json/lucide": "^1.2.138",
+    "@nuxt/ui": "^4.11.2",
+    "@nuxtjs/supabase": "^2.0.10",
+    "mapbox-gl": "^3.32.0",
+    "nuxt": "^4.5.2",
+    "opening_hours": "^3.15.0",
+    "qrcode": "^1.5.4",
+    "tailwindcss": "^4.1.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@types/geojson": "^7946.0.16",
+    "@types/qrcode": "^1.5.5",
+    "typescript": "^5.9.0",
+    "vue-tsc": "^3.1.0"
+  }
+}

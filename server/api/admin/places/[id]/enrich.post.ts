@@ -1,0 +1,65 @@
+import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import type { Database } from '~~/shared/types/database.types'
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const CACHE_DAYS = 30 // los horarios cambian; se refresca pasado este plazo
+
+/**
+ * POST /api/admin/places/:id/enrich
+ * Precarga historia, horarios, web, teléfono y foto de un lugar usando
+ * solo APIs gratuitas (sin IA): Overpass, Wikidata, Wikipedia, Commons
+ * y opcionalmente Pexels. El resultado se cachea en place_info.
+ */
+export default defineEventHandler(async (event) => {
+  const user = await serverSupabaseUser(event)
+  if (!user) throw createError({ statusCode: 401, message: 'Debes iniciar sesión.' })
+
+  const id = getRouterParam(event, 'id') ?? ''
+  if (!UUID_RE.test(id)) throw createError({ statusCode: 404, message: 'Lugar no encontrado.' })
+
+  // Se lee con el cliente del usuario: RLS decide si tiene acceso al lugar.
+  const userClient = await serverSupabaseClient<Database>(event)
+  const { data: place } = await userClient
+    .from('places')
+    .select('id, name, trip_id, mapbox_id, latitude, longitude')
+    .eq('id', id)
+    .maybeSingle()
+  if (!place) throw createError({ statusCode: 404, message: 'Lugar no encontrado.' })
+
+  const { data: cached } = await userClient
+    .from('place_info')
+    .select('*')
+    .eq('place_id', id)
+    .maybeSingle()
+  // ?force=1 (búsqueda manual) ignora la caché y vuelve a consultar las fuentes.
+  const force = !!getQuery(event).force
+  if (!force && cached && Date.now() - new Date(cached.updated_at).getTime() < CACHE_DAYS * 86_400_000) {
+    return cached
+  }
+
+  const result = await enrichPlace({ name: place.name, latitude: place.latitude, longitude: place.longitude })
+
+  const row = {
+    place_id: place.id,
+    trip_id: place.trip_id,
+    mapbox_id: place.mapbox_id,
+    history: result.history,
+    history_source: result.historySource,
+    opening_hours: result.openingHours,
+    website: result.website,
+    phone: result.phone,
+    photo_url: result.photo?.url ?? null,
+    photo_credit: result.photo?.credit ?? null,
+    wikipedia_url: result.wikipediaUrl,
+    wikidata_id: result.wikidataId,
+    updated_at: new Date().toISOString(),
+  }
+
+  const admin = serverSupabaseServiceRole<Database>(event)
+  const { data, error } = await admin.from('place_info').upsert(row).select('*').single()
+  if (error) {
+    console.error('[place-enrich]', error)
+    throw createError({ statusCode: 500, message: 'No se pudo guardar la info del lugar.' })
+  }
+  return data
+})

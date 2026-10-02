@@ -1,0 +1,192 @@
+// Prueba las migraciones contra Postgres real (PGlite) con un stub de Supabase
+import { PGlite } from '@electric-sql/pglite'
+import fs from 'node:fs'
+import path from 'node:path'
+
+const MIG = path.join(path.dirname(new URL(import.meta.url).pathname), '../migrations')
+const db = new PGlite()
+
+// ---- Stub mínimo de Supabase: roles, auth, storage, grants por defecto ----
+await db.exec(`
+  create role anon nologin;
+  create role authenticated nologin;
+  create role service_role nologin bypassrls;
+  grant usage on schema public to anon, authenticated, service_role;
+  alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+  alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
+
+  create schema auth;
+  grant usage on schema auth to anon, authenticated, service_role;
+  create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb default '{}');
+  create function auth.uid() returns uuid language sql stable as
+    $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+  grant execute on function auth.uid() to anon, authenticated, service_role;
+
+  create schema storage;
+  grant usage on schema storage to anon, authenticated, service_role;
+  create table storage.buckets (id text primary key, name text, public boolean,
+    file_size_limit bigint, allowed_mime_types text[]);
+  create table storage.objects (id uuid primary key default gen_random_uuid(),
+    bucket_id text references storage.buckets(id), name text);
+  alter table storage.objects enable row level security;
+  grant all on storage.objects to authenticated;
+`)
+
+for (const f of fs.readdirSync(MIG).sort()) {
+  try { await db.exec(fs.readFileSync(path.join(MIG, f), 'utf8')); console.log('✔ migración', f) }
+  catch (e) { console.error('✘ migración', f, e.message); process.exit(1) }
+}
+
+// ---- helpers ----
+let pass = 0, fail = 0
+const check = (name, cond, extra = '') => {
+  if (cond) { pass++; console.log('  ✔', name) } else { fail++; console.log('  ✘', name, extra) }
+}
+async function as(role, uid, sql, params = []) {
+  await db.exec(`set role ${role}`)
+  await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [uid ?? ''])
+  try { return await db.query(sql, params) }
+  finally { await db.exec('reset role'); await db.query(`select set_config('request.jwt.claim.sub', '', false)`) }
+}
+async function err(role, uid, sql, params = []) {
+  try { await as(role, uid, sql, params); return null } catch (e) { return e.message }
+}
+const svc = (sql, params) => as('service_role', null, sql, params)
+const svcErr = (sql, params) => err('service_role', null, sql, params)
+const mget = async (t) => (await svc('select public.member_get_trip($1) r', [t])).rows[0].r
+const mplaces = async (t) => (await svc('select public.member_list_places($1) r', [t])).rows[0].r
+
+
+const A = '11111111-1111-1111-1111-111111111111'
+const B = '22222222-2222-2222-2222-222222222222'
+const C = '33333333-3333-3333-3333-333333333333'
+
+console.log('\nUsuarios')
+await db.query(`insert into auth.users (id, email, raw_user_meta_data) values
+  ($1,'ana@x.cl','{"full_name":"Ana"}'), ($2,'beto@x.cl','{}'), ($3,'caro@x.cl','{}')`, [A, B, C])
+check('perfiles creados', (await db.query('select count(*)::int n from public.profiles')).rows[0].n === 3)
+
+console.log('\nViajes y co-administradores')
+const newTrip = (uid, extra = '') => as('authenticated', uid, `insert into public.trips
+  (name, destination, start_date, end_date, time_zone, rsvp_deadline)
+  values ('Corea 2027', 'Corea del Sur', '2027-04-10', '2027-04-20', 'Asia/Seoul', now() + interval '30 days') ${extra} returning *`)
+const trip = (await newTrip(A)).rows[0]
+check('A crea viaje (insert + select)', trip.owner_id === A && trip.itinerary_published === false)
+check('zona horaria inválida rechazada', /Zona horaria no válida/.test(await err('authenticated', A, `insert into public.trips (name, start_date, end_date, time_zone, rsvp_deadline) values ('x','2027-01-01','2027-01-02','Marte/Olympus', now())`)))
+check('fin antes del inicio rechazado', /trip_dates_valid/.test(await err('authenticated', A, `insert into public.trips (name, start_date, end_date, rsvp_deadline) values ('x','2027-01-05','2027-01-02', now())`)))
+check('B no ve el viaje', (await as('authenticated', B, 'select * from public.trips')).rows.length === 0)
+check('anon sin acceso', /permission denied/.test(await err('anon', null, 'select * from public.trips')))
+check('B no puede asignarse admin', /Solo el creador/.test(await err('authenticated', B, 'select public.add_trip_admin($1,$2)', [trip.id, 'beto@x.cl'])))
+await as('authenticated', A, 'select public.add_trip_admin($1,$2)', [trip.id, 'BETO@x.cl'])
+check('A agrega a B por correo', (await as('authenticated', B, 'select * from public.trips')).rows.length === 1)
+check('B (co-admin) no puede agregar a C', /Solo el creador/.test(await err('authenticated', B, 'select public.add_trip_admin($1,$2)', [trip.id, 'caro@x.cl'])))
+await as('authenticated', B, `update public.trips set description = 'Primavera' where id = $1`, [trip.id])
+check('B edita el viaje', (await db.query('select description from public.trips')).rows[0].description === 'Primavera')
+check('nadie cambia owner_id', /permission denied/.test(await err('authenticated', A, 'update public.trips set owner_id = $2 where id = $1', [trip.id, B])))
+await as('authenticated', B, 'delete from public.trips where id = $1', [trip.id])
+check('B no puede borrar el viaje', (await db.query('select count(*)::int n from public.trips')).rows[0].n === 1)
+
+console.log('\nMiembros, lugares e itinerario (admin)')
+const mem = (await as('authenticated', A, `insert into public.members (trip_id, name) values
+  ($1,'Juan'), ($1,'Lucía'), ($1,'Pedro') returning id, token`, [trip.id])).rows
+const [tJuan, tLucia, tPedro] = mem.map(r => r.token)
+check('tokens de 32 hex', mem.every(m => /^[0-9a-f]{32}$/.test(m.token)))
+check('admin no cambia el estado de un miembro', /permission denied/.test(await err('authenticated', A, `update public.members set status='accepted' where trip_id=$1`, [trip.id])))
+check('C no crea miembros en viaje ajeno', /row-level security/.test(await err('authenticated', C, `insert into public.members (trip_id, name) values ($1,'x')`, [trip.id])))
+
+const places = (await as('authenticated', B, `insert into public.places (trip_id, name, latitude, longitude, votable, sort_order) values
+  ($1,'Gyeongbokgung', 37.5796, 126.9770, true, 1),
+  ($1,'N Seoul Tower', 37.5512, 126.9882, true, 2),
+  ($1,'Hotel Myeongdong', 37.5636, 126.9850, false, 3) returning id`, [trip.id])).rows.map(r => r.id)
+const [pPalacio, pTorre, pHotel] = places
+check('coordenadas fuera de rango rechazadas', /places_latitude_check/.test(await err('authenticated', A, `insert into public.places (trip_id, name, latitude, longitude) values ($1,'x', 95, 0)`, [trip.id])))
+check('admin no puede escribir ai_info directo', /permission denied/.test(await err('authenticated', A, `update public.places set ai_info='{}' where id=$1`, [pPalacio])))
+
+await as('authenticated', A, `insert into public.itinerary_stops (trip_id, place_id, day, start_time, end_time) values
+  ($1, $2, '2027-04-11', '09:00', '12:00'), ($1, $3, '2027-04-10', '15:00', null)`, [trip.id, pPalacio, pHotel])
+await as('authenticated', A, `insert into public.itinerary_stops (trip_id, title, day, start_time) values ($1, 'Vuelo SCL → ICN', '2027-04-10', '06:30')`, [trip.id])
+check('parada fuera de las fechas rechazada', /stop_day_outside_trip/.test(await err('authenticated', A, `insert into public.itinerary_stops (trip_id, title, day) values ($1,'x','2027-05-01')`, [trip.id])))
+check('parada sin lugar ni título rechazada', /stop_has_subject/.test(await err('authenticated', A, `insert into public.itinerary_stops (trip_id, day) values ($1,'2027-04-11')`, [trip.id])))
+check('hora de término antes del inicio rechazada', /stop_times_valid/.test(await err('authenticated', A, `insert into public.itinerary_stops (trip_id, title, day, start_time, end_time) values ($1,'x','2027-04-11','10:00','09:00')`, [trip.id])))
+check('acortar el viaje dejando paradas fuera falla', /stops_outside_new_dates/.test(await err('authenticated', A, `update public.trips set end_date='2027-04-10' where id=$1`, [trip.id])))
+
+const otherTrip = (await newTrip(C)).rows[0]
+const otherPlace = (await as('authenticated', C, `insert into public.places (trip_id, name, latitude, longitude) values ($1,'Busan', 35.1, 129.0) returning id`, [otherTrip.id])).rows[0].id
+check('parada con lugar de otro viaje rechazada', /foreign key|violates/.test(await err('authenticated', A, `insert into public.itinerary_stops (trip_id, place_id, day) values ($1,$2,'2027-04-11')`, [trip.id, otherPlace]) ?? ''))
+
+console.log('\nAcceso de viajeros')
+check('authenticated no llama funciones member_*', /permission denied/.test(await err('authenticated', A, 'select public.member_get_trip($1)', [tJuan])))
+check('anon no llama funciones member_*', /permission denied/.test(await err('anon', null, 'select public.member_get_trip($1)', [tJuan])))
+check('token inválido', /MEMBER_NOT_FOUND/.test(await svcErr('select public.member_get_trip($1)', ['abc'])))
+let g = await mget(tJuan)
+check('ve el viaje y su estado', g.trip.name === 'Corea 2027' && g.member.status === 'pending' && g.is_open)
+check('no recibe la nota interna ni ids', !('notes' in g.member) && !('id' in g.member))
+check('itinerario oculto mientras no se publica', g.itinerary_published === false && g.itinerary.length === 0)
+let pl = await mplaces(tJuan)
+check('ve solo lugares votables (el hotel no)', pl.length === 2 && !pl.some(p => p.id === pHotel))
+check('no puede votar sin confirmar', /NOT_ACCEPTED/.test(await svcErr('select public.member_vote($1,$2)', [tJuan, pPalacio])))
+
+console.log('\nVotos')
+for (const t of [tJuan, tLucia]) await svc('select public.member_respond($1,$2)', [t, 'accepted'])
+pl = (await svc('select public.member_vote($1,$2) r', [tJuan, pPalacio])).rows[0].r
+let palacio = pl.find(p => p.id === pPalacio)
+check('Juan vota el palacio', palacio.vote_count === 1 && palacio.voted === true)
+pl = (await svc('select public.member_vote($1,$2) r', [tJuan, pPalacio])).rows[0].r
+check('votar dos veces el mismo lugar no suma', pl.find(p => p.id === pPalacio).vote_count === 1)
+check('una fila de voto por miembro y lugar', (await db.query('select count(*)::int n from public.votes where place_id=$1', [pPalacio])).rows[0].n === 1)
+await svc('select public.member_vote($1,$2)', [tJuan, pTorre])
+check('Juan puede votar varios lugares distintos', (await mget(tJuan)).my_votes === 2)
+pl = (await svc('select public.member_vote($1,$2) r', [tLucia, pPalacio])).rows[0].r
+palacio = pl.find(p => p.id === pPalacio)
+check('Lucía ve 2 votos en el palacio y el suyo marcado', palacio.vote_count === 2 && palacio.voted)
+check('Lucía ve votos de la torre sin marcar como suyos', pl.find(p => p.id === pTorre).vote_count === 1 && !pl.find(p => p.id === pTorre).voted)
+check('la lista no expone quién votó', !JSON.stringify(pl).includes('Juan'))
+check('no puede votar un lugar no votable', /PLACE_NOT_VOTABLE/.test(await svcErr('select public.member_vote($1,$2)', [tJuan, pHotel])))
+check('no puede votar lugar de otro viaje', /PLACE_NOT_FOUND/.test(await svcErr('select public.member_vote($1,$2)', [tJuan, otherPlace])))
+pl = (await svc('select public.member_unvote($1,$2) r', [tLucia, pPalacio])).rows[0].r
+check('Lucía quita su voto', pl.find(p => p.id === pPalacio).vote_count === 1 && !pl.find(p => p.id === pPalacio).voted)
+check('admin no inserta votos directo', /permission denied/.test(await err('authenticated', A, `insert into public.votes (place_id, member_id, trip_id) values ($1,$2,$3)`, [pTorre, mem[2].id, trip.id])))
+const adm = (await as('authenticated', B, `select m.name from public.votes v join public.members m on m.id = v.member_id where v.place_id = $1`, [pPalacio])).rows
+check('co-admin ve quién votó', adm.length === 1 && adm[0].name === 'Juan')
+check('C no ve votos ajenos', (await as('authenticated', C, 'select * from public.votes')).rows.length === 0)
+
+console.log('\nRetractarse')
+const rd = (await svc('select public.member_respond($1,$2) r', [tJuan, 'declined'])).rows[0].r
+check('Juan declina y sus votos se borran', rd.member.status === 'declined' && rd.my_votes === 0)
+check('el conteo baja para los demás', (await mplaces(tLucia)).find(p => p.id === pPalacio).vote_count === 0)
+
+console.log('\nItinerario publicado')
+await as('authenticated', A, 'update public.trips set itinerary_published = true where id = $1', [trip.id])
+g = await mget(tPedro)
+check('itinerario visible al publicar (aunque no haya confirmado)', g.itinerary.length === 3)
+check('ordenado por día y hora', g.itinerary[0].title === 'Vuelo SCL → ICN' && g.itinerary[1].title === 'Hotel Myeongdong' && g.itinerary[2].start_time === '09:00')
+check('hora en formato HH:MM', g.itinerary[0].start_time === '06:30' && g.itinerary[1].end_time === null)
+pl = await mplaces(tPedro)
+check('el hotel aparece al estar en el itinerario publicado', pl.some(p => p.id === pHotel && p.in_itinerary && !p.votable))
+
+console.log('\nFicha de IA')
+await db.query(`update public.places set ai_status='pending', ai_info='{"summary":"borrador"}' where id=$1`, [pTorre])
+check('ficha pendiente no se muestra', (await mplaces(tPedro)).find(p => p.id === pTorre).ai_info === null)
+await db.query(`update public.places set ai_status='ready', ai_info='{"summary":"Torre icónica"}' where id=$1`, [pTorre])
+check('ficha lista sí se muestra', (await mplaces(tPedro)).find(p => p.id === pTorre).ai_info.summary === 'Torre icónica')
+
+console.log('\nFecha límite')
+await db.query(`update public.trips set rsvp_deadline = now() - interval '1 minute' where id = $1`, [trip.id])
+check('is_open = false', (await mget(tLucia)).is_open === false)
+check('no puede responder', /DEADLINE_PASSED/.test(await svcErr('select public.member_respond($1,$2)', [tLucia, 'declined'])))
+check('no puede votar', /DEADLINE_PASSED/.test(await svcErr('select public.member_vote($1,$2)', [tLucia, pTorre])))
+check('no puede quitar votos', /DEADLINE_PASSED/.test(await svcErr('select public.member_unvote($1,$2)', [tLucia, pTorre])))
+check('sigue viendo itinerario y lugares', (await mget(tLucia)).itinerary.length === 3 && (await mplaces(tLucia)).length === 3)
+
+console.log('\nStorage')
+check('B sube foto a su viaje', !(await err('authenticated', B, `insert into storage.objects (bucket_id, name) values ('place-photos', $1)`, [`${trip.id}/a.webp`])))
+check('C no sube al viaje de A', /row-level security/.test(await err('authenticated', C, `insert into storage.objects (bucket_id, name) values ('place-photos', $1)`, [`${trip.id}/x.webp`])))
+
+console.log('\nBorrar')
+await as('authenticated', A, 'delete from public.places where id=$1', [pPalacio])
+check('borrar un lugar quita sus paradas y votos', (await db.query('select count(*)::int n from public.itinerary_stops where place_id=$1', [pPalacio])).rows[0].n === 0)
+await as('authenticated', A, 'delete from public.trips where id=$1', [trip.id])
+check('borrar viaje borra todo en cascada', (await db.query('select (select count(*) from public.members where trip_id=$1)::int + (select count(*) from public.places where trip_id=$1)::int + (select count(*) from public.itinerary_stops where trip_id=$1)::int n', [trip.id])).rows[0].n === 0)
+
+console.log(`\n${pass} ok, ${fail} fallidas`)
+process.exit(fail ? 1 : 0)
