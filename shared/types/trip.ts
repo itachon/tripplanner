@@ -1,5 +1,7 @@
 // Tipos compartidos entre el servidor y el navegador
 
+import type { BudgetItemView } from '../utils/budget'
+
 export type MemberStatus = 'pending' | 'accepted' | 'declined'
 
 /** Info automática de un lugar, sin IA (se guarda en la tabla place_info) */
@@ -33,6 +35,8 @@ export interface MemberTripView {
   itinerary_published: boolean
   my_votes: number
   itinerary: MemberStop[]
+  budget_published: boolean
+  budget: MemberBudget | null
 }
 
 export interface MemberStop {
@@ -61,4 +65,15 @@ export interface MemberPlace {
   info: PlaceInfo | null
   vote_count: number
   voted: boolean
+}
+
+/** Presupuesto que ve el viajero (solo si está publicado) */
+export interface MemberBudget {
+  /** moneda principal del viaje */
+  currency: string
+  /** id del viajero que mira, para destacar lo suyo */
+  me: string
+  members: { id: string, name: string, status: MemberStatus }[]
+  items: BudgetItemView[]
+  rates: { currency: string, rate: number }[]
 }

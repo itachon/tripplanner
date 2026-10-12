@@ -17,6 +17,115 @@ export type Database = {
   }
   public: {
     Tables: {
+      budget_item_shares: {
+        Row: {
+          item_id: string
+          member_id: string
+          trip_id: string
+        }
+        Insert: {
+          item_id: string
+          member_id: string
+          trip_id: string
+        }
+        Update: {
+          item_id?: string
+          member_id?: string
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budget_item_shares_item_id_trip_id_fkey"
+            columns: ["item_id", "trip_id"]
+            isOneToOne: false
+            referencedRelation: "budget_items"
+            referencedColumns: ["id", "trip_id"]
+          },
+          {
+            foreignKeyName: "budget_item_shares_member_id_trip_id_fkey"
+            columns: ["member_id", "trip_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id", "trip_id"]
+          },
+        ]
+      }
+      budget_items: {
+        Row: {
+          actual_amount: number | null
+          actual_rate: number | null
+          category: Database["public"]["Enums"]["budget_category"]
+          created_at: string
+          currency: string
+          estimated_amount: number | null
+          id: string
+          name: string
+          notes: string | null
+          paid_by: string | null
+          paid_on: string | null
+          place_id: string | null
+          sort_order: number
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          actual_amount?: number | null
+          actual_rate?: number | null
+          category?: Database["public"]["Enums"]["budget_category"]
+          created_at?: string
+          currency: string
+          estimated_amount?: number | null
+          id?: string
+          name: string
+          notes?: string | null
+          paid_by?: string | null
+          paid_on?: string | null
+          place_id?: string | null
+          sort_order?: number
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          actual_amount?: number | null
+          actual_rate?: number | null
+          category?: Database["public"]["Enums"]["budget_category"]
+          created_at?: string
+          currency?: string
+          estimated_amount?: number | null
+          id?: string
+          name?: string
+          notes?: string | null
+          paid_by?: string | null
+          paid_on?: string | null
+          place_id?: string | null
+          sort_order?: number
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budget_items_paid_by_trip_id_fkey"
+            columns: ["paid_by", "trip_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id", "trip_id"]
+          },
+          {
+            foreignKeyName: "budget_items_place_id_trip_id_fkey"
+            columns: ["place_id", "trip_id"]
+            isOneToOne: false
+            referencedRelation: "places"
+            referencedColumns: ["id", "trip_id"]
+          },
+          {
+            foreignKeyName: "budget_items_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       itinerary_stops: {
         Row: {
           created_at: string
@@ -312,8 +421,42 @@ export type Database = {
           },
         ]
       }
+      trip_exchange_rates: {
+        Row: {
+          currency: string
+          rate: number
+          source: string
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          currency: string
+          rate: number
+          source?: string
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          currency?: string
+          rate?: number
+          source?: string
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_exchange_rates_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trips: {
         Row: {
+          budget_currency: string
+          budget_published: boolean
           created_at: string
           description: string | null
           destination: string | null
@@ -328,6 +471,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          budget_currency?: string
+          budget_published?: boolean
           created_at?: string
           description?: string | null
           destination?: string | null
@@ -342,6 +487,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          budget_currency?: string
+          budget_published?: boolean
           created_at?: string
           description?: string | null
           destination?: string | null
@@ -474,9 +621,20 @@ export type Database = {
         Args: { p_member_id: string }
         Returns: string
       }
+      set_budget_item_shares: {
+        Args: { p_item_id: string; p_member_ids: string[] }
+        Returns: undefined
+      }
       storage_trip_id: { Args: { p_name: string }; Returns: string }
     }
     Enums: {
+      budget_category:
+        | "lodging"
+        | "transport"
+        | "tickets"
+        | "food"
+        | "shopping"
+        | "other"
       member_status: "pending" | "accepted" | "declined"
     }
     CompositeTypes: {
@@ -605,6 +763,14 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      budget_category: [
+        "lodging",
+        "transport",
+        "tickets",
+        "food",
+        "shopping",
+        "other",
+      ],
       member_status: ["pending", "accepted", "declined"],
     },
   },
