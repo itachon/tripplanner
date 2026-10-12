@@ -70,13 +70,14 @@ watch(open, (isOpen) => {
 // si el viaje todavía no conoce esa moneda, se le pide al servidor.
 watch(() => [state.paid, state.currency, open.value] as const, async ([paid, currency, isOpen]) => {
   if (!isOpen || !paid || !foreign.value) return
+  // Cambió la moneda desde la última vez: el cambio escrito ya no le corresponde
+  const changed = currency !== lastRateCurrency
+  lastRateCurrency = currency
   const frozen = props.item?.currency === currency ? props.item.actual_rate : null
   if (frozen) return void (state.rate = String(frozen))
   if (rates.value[currency]) return void (state.rate = String(rates.value[currency]))
   if (!trip.value) return
-  // Solo se vacía si el cambio que había era de otra moneda
-  if (currency !== lastRateCurrency) state.rate = ''
-  lastRateCurrency = currency
+  if (changed) state.rate = ''
   fetchingRate.value = true
   try {
     const rows = await $fetch<ExchangeRate[]>(`/api/admin/trips/${trip.value.id}/rates`, { method: 'POST', body: { currencies: [currency] } })
