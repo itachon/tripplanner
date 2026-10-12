@@ -2,7 +2,8 @@
 import type { FormError, FormSubmitEvent } from '@nuxt/ui'
 import type { BudgetItem, ExchangeRate } from '~/composables/useTripAdmin'
 import {
-  BUDGET_CATEGORIES, BUDGET_CATEGORY_META, BUDGET_CURRENCIES, currencyLabel, formatMoney, roundMoney,
+  BUDGET_CATEGORIES, BUDGET_CATEGORY_META, BUDGET_CURRENCIES, MAX_BUDGET_EXTRAS,
+  currencyLabel, formatMoney, parseExtraRows, roundMoney,
   type BudgetCategory,
 } from '~~/shared/utils/budget'
 
@@ -18,6 +19,7 @@ const state = reactive({
   name: '',
   currency: 'CLP',
   estimated: '',
+  extras: [] as { name: string, amount: string }[],
   notes: '',
   placeId: '',
   paid: false,
@@ -38,6 +40,20 @@ const currencyItems = BUDGET_CURRENCIES.map(c => ({ label: currencyLabel(c), val
 const memberItems = computed(() => members.value.map(m => ({ label: m.name, value: m.id })))
 const placeItems = computed(() => places.value.map(p => ({ label: p.name, value: p.id })))
 const foreign = computed(() => state.currency !== baseCurrency.value)
+const isTickets = computed(() => state.category === 'tickets')
+
+/** "Total con extras" bajo el costo estimado; null si no hay extras válidos */
+const totalWithExtras = computed(() => {
+  const { extras } = parseExtraRows(state.extras)
+  if (!isTickets.value || !extras.length) return null
+  const est = num(state.estimated)
+  const base = est != null && est >= 0 ? est : 0
+  return formatMoney(base + extras.reduce((t, e) => t + e.amount, 0), state.currency)
+})
+
+/** Extras cargados que se perderán porque la categoría ya no es Entradas */
+const droppedExtras = computed(() =>
+  isTickets.value ? 0 : state.extras.filter(e => e.name.trim() || String(e.amount ?? '').trim()).length)
 
 /** '' → null; texto no numérico → NaN (lo rechaza validate) */
 function num(v: string | number): number | null {
@@ -56,6 +72,7 @@ watch(open, (isOpen) => {
   state.name = i?.name ?? ''
   state.currency = i?.currency ?? baseCurrency.value
   state.estimated = i?.estimated_amount != null ? String(i.estimated_amount) : ''
+  state.extras = (i?.extras ?? []).map(e => ({ name: e.name, amount: String(e.amount) }))
   state.notes = i?.notes ?? ''
   state.placeId = i?.place_id ?? ''
   state.paid = i?.actual_amount != null
@@ -113,6 +130,9 @@ function validate(s: typeof state): FormError[] {
     if (foreign.value && !(rate != null && rate > 0)) errors.push({ name: 'rate', message: 'Ingresa el tipo de cambio' })
     if (!s.paidBy) errors.push({ name: 'paidBy', message: 'Elige quién pagó' })
   }
+  if (s.category === 'tickets') {
+    for (const e of parseExtraRows(s.extras).errors) errors.push({ name: `extras.${e.index}.${e.field}`, message: e.message })
+  }
   return errors
 }
 
@@ -126,6 +146,7 @@ async function onSubmit(e: FormSubmitEvent<typeof state>) {
     notes: d.notes.trim() || null,
     currency: d.currency,
     estimated_amount: num(d.estimated),
+    extras: d.category === 'tickets' ? parseExtraRows(d.extras).extras : [],
     actual_amount: d.paid ? num(d.actual) : null,
     actual_rate: d.paid ? (foreign.value ? num(d.rate) : 1) : null,
     paid_by: d.paid ? d.paidBy || null : null,
@@ -190,10 +211,78 @@ async function onSubmit(e: FormSubmitEvent<typeof state>) {
           <UFormField label="Moneda" name="currency" required>
             <USelectMenu v-model="state.currency" :items="currencyItems" value-key="value" :search-input="{ placeholder: 'Buscar moneda…' }" class="w-full" />
           </UFormField>
-          <UFormField label="Costo estimado" name="estimated" :help="`Total del ítem en ${state.currency}`">
+          <UFormField
+            label="Costo estimado"
+            name="estimated"
+            :help="totalWithExtras ? `Total con extras: ${totalWithExtras}` : `Total del ítem en ${state.currency}`"
+          >
             <UInput v-model="state.estimated" type="number" min="0" step="any" inputmode="decimal" class="w-full" />
           </UFormField>
         </div>
+
+        <div v-if="isTickets" class="rounded-lg border border-default p-3">
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <p class="text-sm font-medium">
+                Extras
+              </p>
+              <p class="text-xs text-muted">
+                Cargos adicionales de la entrada, en {{ state.currency }}. Se suman al costo estimado.
+              </p>
+            </div>
+            <UButton
+              size="xs"
+              color="neutral"
+              variant="subtle"
+              icon="i-lucide-plus"
+              :disabled="state.extras.length >= MAX_BUDGET_EXTRAS"
+              @click="state.extras.push({ name: '', amount: '' })"
+            >
+              Agregar extra
+            </UButton>
+          </div>
+          <div v-if="state.extras.length" class="mt-3 space-y-2">
+            <div v-for="(extra, idx) in state.extras" :key="idx" class="flex items-start gap-2">
+              <UFormField :name="`extras.${idx}.name`" class="min-w-0 flex-1">
+                <UInput
+                  v-model="extra.name"
+                  maxlength="120"
+                  placeholder="Audioguía, visita guiada…"
+                  :aria-label="`Nombre del extra ${idx + 1}`"
+                  class="w-full"
+                />
+              </UFormField>
+              <UFormField :name="`extras.${idx}.amount`" class="w-32 shrink-0">
+                <UInput
+                  v-model="extra.amount"
+                  type="number"
+                  min="0"
+                  step="any"
+                  inputmode="decimal"
+                  placeholder="Monto"
+                  :aria-label="`Monto del extra ${idx + 1}`"
+                  class="w-full"
+                />
+              </UFormField>
+              <UButton
+                color="neutral"
+                variant="ghost"
+                icon="i-lucide-x"
+                :aria-label="`Quitar extra ${idx + 1}`"
+                @click="state.extras.splice(idx, 1)"
+              />
+            </div>
+          </div>
+        </div>
+        <UAlert
+          v-else-if="droppedExtras"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          :title="droppedExtras === 1
+            ? 'Al guardar se quitará el extra: solo las entradas pueden tenerlos.'
+            : `Al guardar se quitarán los ${droppedExtras} extras: solo las entradas pueden tenerlos.`"
+        />
 
         <UFormField label="Lugar (opcional)" name="placeId">
           <div class="flex gap-2">
