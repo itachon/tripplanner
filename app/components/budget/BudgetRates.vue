@@ -5,29 +5,44 @@ import type { ExchangeRate } from '~/composables/useTripAdmin'
 defineProps<{ loading?: boolean }>()
 const emit = defineEmits<{ refresh: [] }>()
 
-const { trip, exchangeRates, baseCurrency, refresh } = useTripCtx()
+const { trip, exchangeRates, budgetItems, baseCurrency, refresh } = useTripCtx()
 const { client } = useDb()
 const toast = useToast()
 
 const draft = reactive<Record<string, string | number>>({})
 const saving = ref<string | null>(null)
 
+// Una línea por moneda que el presupuesto usa o que ya tiene fila
+const lines = computed(() => {
+  const byCode = new Map(exchangeRates.value.map(r => [r.currency, r]))
+  const codes = new Set([
+    ...budgetItems.value.map(i => i.currency).filter(c => c !== baseCurrency.value),
+    ...byCode.keys(),
+  ])
+  return [...codes].sort().map(currency => ({ currency, row: byCode.get(currency) ?? null }))
+})
+
+// Solo se pisa el borrador si el valor guardado cambió (o no hay borrador)
+const stored = new Map<string, number>()
 watch(exchangeRates, (rows) => {
-  for (const r of rows) draft[r.currency] = r.rate
+  for (const r of rows) {
+    if (!(r.currency in draft) || stored.get(r.currency) !== r.rate) draft[r.currency] = r.rate
+    stored.set(r.currency, r.rate)
+  }
 }, { immediate: true })
 
-const changed = (r: ExchangeRate) => Number(draft[r.currency]) !== r.rate
+const changed = (currency: string, row: ExchangeRate | null) =>
+  row ? Number(draft[currency]) !== row.rate : Number(draft[currency]) > 0
 
-async function save(r: ExchangeRate) {
-  const rate = Number(draft[r.currency])
+async function save(currency: string) {
+  const rate = Number(draft[currency])
   if (!trip.value || !(rate > 0)) return toast.add({ color: 'error', title: 'Ingresa un tipo de cambio válido' })
-  saving.value = r.currency
+  saving.value = currency
   const { error } = await client.from('trip_exchange_rates')
-    .update({ rate, source: 'manual', updated_at: new Date().toISOString() })
-    .eq('trip_id', trip.value.id).eq('currency', r.currency)
+    .upsert({ trip_id: trip.value.id, currency, rate, source: 'manual', updated_at: new Date().toISOString() })
   saving.value = null
   if (error) return toast.add({ color: 'error', title: 'No se pudo guardar', description: errorMessage(error) })
-  toast.add({ title: `Tipo de cambio de ${r.currency} fijado a mano` })
+  toast.add({ title: `Tipo de cambio de ${currency} fijado a mano` })
   await refresh()
 }
 
@@ -44,22 +59,25 @@ async function backToAuto(r: ExchangeRate) {
 
 <template>
   <div>
-    <p v-if="!exchangeRates.length" class="text-sm text-muted">
+    <p v-if="!lines.length" class="text-sm text-muted">
       Todos los ítems están en {{ baseCurrency }}. Cuando agregues uno en otra moneda, su tipo de cambio aparecerá aquí.
     </p>
     <ul v-else class="space-y-2">
-      <li v-for="r in exchangeRates" :key="r.currency" class="flex flex-wrap items-center gap-2 text-sm">
-        <span class="w-16 font-medium">1 {{ r.currency }} =</span>
-        <UInput v-model="draft[r.currency]" type="number" min="0" step="any" inputmode="decimal" size="sm" class="w-36" />
+      <li v-for="{ currency, row } in lines" :key="currency" class="flex flex-wrap items-center gap-2 text-sm">
+        <span class="w-16 font-medium">1 {{ currency }} =</span>
+        <UInput v-model="draft[currency]" type="number" min="0" step="any" inputmode="decimal" size="sm" class="w-36" />
         <span class="text-muted">{{ baseCurrency }}</span>
-        <UBadge :color="r.source === 'manual' ? 'warning' : 'neutral'" variant="subtle" size="sm">
-          {{ r.source === 'manual' ? 'A mano' : 'Automático' }}
+        <UBadge v-if="!row" color="warning" variant="subtle" size="sm">
+          Sin tipo de cambio
         </UBadge>
-        <span class="text-xs text-dimmed">{{ new Date(r.updated_at).toLocaleDateString('es-CL') }}</span>
-        <UButton v-if="changed(r)" size="xs" :loading="saving === r.currency" @click="save(r)">
+        <UBadge v-else :color="row.source === 'manual' ? 'warning' : 'neutral'" variant="subtle" size="sm">
+          {{ row.source === 'manual' ? 'A mano' : 'Automático' }}
+        </UBadge>
+        <span v-if="row" class="text-xs text-dimmed">{{ new Date(row.updated_at).toLocaleDateString('es-CL') }}</span>
+        <UButton v-if="changed(currency, row)" size="xs" :loading="saving === currency" @click="save(currency)">
           Guardar
         </UButton>
-        <UButton v-else-if="r.source === 'manual'" size="xs" color="neutral" variant="ghost" :loading="saving === r.currency" @click="backToAuto(r)">
+        <UButton v-else-if="row?.source === 'manual'" size="xs" color="neutral" variant="ghost" :loading="saving === currency" @click="backToAuto(row)">
           Volver a automático
         </UButton>
       </li>

@@ -29,6 +29,9 @@ const state = reactive({
 })
 const loading = ref(false)
 const fetchingRate = ref(false)
+// Ítem ya creado en un intento previo cuyo reparto falló: el reintento lo actualiza
+const createdId = ref<string | null>(null)
+let lastRateCurrency = ''
 
 const categoryItems = BUDGET_CATEGORIES.map(c => ({ label: BUDGET_CATEGORY_META[c].label, value: c, icon: BUDGET_CATEGORY_META[c].icon }))
 const currencyItems = BUDGET_CURRENCIES.map(c => ({ label: currencyLabel(c), value: c as string }))
@@ -45,6 +48,8 @@ function num(v: string | number): number | null {
 
 watch(open, (isOpen) => {
   if (!isOpen) return
+  createdId.value = null
+  lastRateCurrency = ''
   const i = props.item
   const accepted = members.value.filter(m => m.status === 'accepted').map(m => m.id)
   state.category = i?.category ?? 'other'
@@ -69,12 +74,14 @@ watch(() => [state.paid, state.currency, open.value] as const, async ([paid, cur
   if (frozen) return void (state.rate = String(frozen))
   if (rates.value[currency]) return void (state.rate = String(rates.value[currency]))
   if (!trip.value) return
-  state.rate = ''
+  // Solo se vacía si el cambio que había era de otra moneda
+  if (currency !== lastRateCurrency) state.rate = ''
+  lastRateCurrency = currency
   fetchingRate.value = true
   try {
     const rows = await $fetch<ExchangeRate[]>(`/api/admin/trips/${trip.value.id}/rates`, { method: 'POST', body: { currencies: [currency] } })
     const found = rows.find(r => r.currency === currency)
-    if (found && state.currency === currency) state.rate = String(found.rate)
+    if (found && state.currency === currency && state.rate === '') state.rate = String(found.rate)
   }
   catch { /* se ingresa a mano */ }
   finally {
@@ -126,7 +133,7 @@ async function onSubmit(e: FormSubmitEvent<typeof state>) {
   }
 
   try {
-    let id = props.item?.id
+    let id = props.item?.id ?? createdId.value
     if (id) {
       const { error } = await client.from('budget_items').update(fields).eq('id', id)
       if (error) throw error
@@ -139,6 +146,7 @@ async function onSubmit(e: FormSubmitEvent<typeof state>) {
       }).select('id').single()
       if (error || !data) throw error
       id = data.id
+      createdId.value = data.id
     }
 
     const { error: sharesError } = await client.rpc('set_budget_item_shares', { p_item_id: id, p_member_ids: d.memberIds })
@@ -173,7 +181,7 @@ async function onSubmit(e: FormSubmitEvent<typeof state>) {
             <USelect v-model="state.category" :items="categoryItems" class="w-full" />
           </UFormField>
           <UFormField label="Nombre" name="name" required>
-            <UInput v-model="state.name" placeholder="Hotel en Myeongdong, tren a Busan…" class="w-full" autofocus />
+            <UInput v-model="state.name" maxlength="120" placeholder="Hotel en Myeongdong, tren a Busan…" class="w-full" autofocus />
           </UFormField>
         </div>
 

@@ -137,6 +137,9 @@ onMounted(() => {
           </UButton>
         </div>
       </div>
+      <p v-if="hasPaid" class="mt-3 text-xs text-muted">
+        La moneda principal no se puede cambiar porque ya hay gastos pagados.
+      </p>
     </UCard>
 
     <UEmpty
@@ -144,6 +147,7 @@ onMounted(() => {
       icon="i-lucide-wallet"
       title="Aún no hay presupuesto"
       description="Agrega los costos del viaje: alojamiento, transporte, entradas, comida. Después registra lo que se vaya pagando y quién lo pagó."
+      :actions="[{ label: 'Agregar el primer ítem', icon: 'i-lucide-plus', onClick: add }]"
       class="rounded-lg border border-dashed border-default bg-default py-10"
     />
 
