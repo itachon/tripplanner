@@ -8,6 +8,7 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "typecheck": "nuxt typecheck",
+    "test": "node --test \"tests/**/*.test.ts\"",
     "test:db": "node supabase/tests/rules.test.mjs",
     "db:types": "supabase gen types typescript --linked --schema public > shared/types/database.types.ts"
   },
