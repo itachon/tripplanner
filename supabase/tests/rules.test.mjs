@@ -188,6 +188,10 @@ check('C no cambia participantes ajenos', /BUDGET_ITEM_NOT_FOUND/.test(await err
 check('participante de otro viaje rechazado', /foreign key|violates/.test(await err('authenticated', A, 'select public.set_budget_item_shares($1,$2::uuid[])', [item.id, uuids([otherMember])]) ?? ''))
 await as('authenticated', A, `insert into public.trip_exchange_rates (trip_id, currency, rate) values ($1,'KRW',0.73)`, [trip.id])
 check('C no ve tipos de cambio ajenos', (await as('authenticated', C, 'select * from public.trip_exchange_rates')).rows.length === 0)
+await as('authenticated', C, `insert into public.trip_exchange_rates (trip_id, currency, rate) values ($1,'KRW',0.73)`, [otherTrip.id])
+const switched = await as('authenticated', C, `update public.trips set budget_currency = 'USD' where id = $1 returning budget_currency`, [otherTrip.id])
+const leftover = await as('authenticated', C, 'select * from public.trip_exchange_rates where trip_id = $1', [otherTrip.id])
+check('cambiar la moneda principal sin gastos pagados borra los tipos de cambio', switched.rows[0]?.budget_currency === 'USD' && leftover.rows.length === 0)
 check('no se cambia la moneda principal con gastos pagados', /budget_currency_locked/.test(await err('authenticated', A, `update public.trips set budget_currency = 'USD' where id = $1`, [trip.id])))
 
 const tmp = (await as('authenticated', A, `insert into public.members (trip_id, name) values ($1,'Temporal') returning id`, [trip.id])).rows[0].id

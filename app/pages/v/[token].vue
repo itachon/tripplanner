@@ -590,14 +590,24 @@ const myBalance = computed(() => bBalances.value.find(b => b.member_id === budge
               title="Aún no hay ítems en el presupuesto"
               class="rounded-lg border border-dashed border-default py-10"
             />
-            <BudgetItemList
-              v-else
-              :items="budget.items"
-              :base="budget.currency"
-              :rates="bRates"
-              :member-names="bNames"
-              :me-id="budget.me"
-            />
+            <template v-else>
+              <UAlert
+                v-if="bSummary.missingRates.length"
+                class="mb-3"
+                color="warning"
+                variant="subtle"
+                icon="i-lucide-circle-alert"
+                title="Total parcial"
+                :description="`Los ítems en ${bSummary.missingRates.join(', ')} todavía no tienen tipo de cambio y no están sumados en los totales.`"
+              />
+              <BudgetItemList
+                :items="budget.items"
+                :base="budget.currency"
+                :rates="bRates"
+                :member-names="bNames"
+                :me-id="budget.me"
+              />
+            </template>
 
             <UCard class="mt-4">
               <template #header>

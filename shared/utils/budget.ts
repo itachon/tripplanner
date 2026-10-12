@@ -75,7 +75,7 @@ const factor = (currency: string) => 10 ** currencyDecimals(currency)
 
 export function roundMoney(amount: number, currency: string): number {
   const f = factor(currency)
-  return Math.round(amount * f) / f
+  return Math.round(amount * f) / f || 0
 }
 
 export function rateFor(currency: string, base: string, rates: Rates): number | null {

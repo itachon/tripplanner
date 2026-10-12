@@ -78,8 +78,11 @@ const stopOpen = computed({
           <UBadge v-else color="warning" variant="subtle" icon="i-lucide-eye-off">
             Itinerario oculto
           </UBadge>
-          <UBadge v-if="trip.budget_published" color="success" variant="subtle" icon="i-lucide-wallet">
+          <UBadge v-if="trip.budget_published" color="success" variant="subtle" icon="i-lucide-eye">
             Presupuesto publicado
+          </UBadge>
+          <UBadge v-else color="warning" variant="subtle" icon="i-lucide-eye-off">
+            Presupuesto oculto
           </UBadge>
         </div>
       </div>

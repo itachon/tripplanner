@@ -25,6 +25,10 @@ test('roundMoney redondea a los decimales de la moneda', () => {
   assert.equal(roundMoney(12.346, 'USD'), 12.35)
 })
 
+test('roundMoney nunca devuelve -0', () => {
+  assert.equal(Object.is(roundMoney(-0.001, 'USD'), 0), true)
+})
+
 test('estimatedBase: convierte con el cambio del viaje; misma moneda = 1', () => {
   assert.equal(estimatedBase(item({ currency: 'KRW', estimated_amount: 900000 }), 'CLP', { KRW: 0.73 }), 657000)
   assert.equal(estimatedBase(item({ estimated_amount: 5000 }), 'CLP', {}), 5000)
@@ -112,7 +116,7 @@ test('balances: ignora ítems sin pagador, sin participantes o sin gasto real', 
   assert.deepEqual(list.map(b => b.balance), [0, 0])
 })
 
-test('settle: transferencias mínimas que dejan a todos en cero', () => {
+test('settle: transferencias que dejan a todos en cero', () => {
   const t = settle([
     { member_id: 'ana', paid: 100, owed: 64, balance: 36 },
     { member_id: 'beto', paid: 60, owed: 63, balance: -3 },
