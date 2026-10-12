@@ -68,11 +68,31 @@ function people(i: T) {
             <p class="font-medium leading-snug">
               {{ i.name }}
             </p>
-            <ul v-if="i.extras?.length" class="mt-0.5 space-y-0.5 text-xs text-muted">
-              <li v-for="(extra, idx) in i.extras" :key="idx">
-                + {{ extra.name }} · {{ formatMoney(extra.amount, i.currency) }}
-              </li>
-            </ul>
+            <!-- Desglose del estimado: precio base + extras = total -->
+            <dl v-if="i.extras?.length" class="mt-1 grid w-fit max-w-full grid-cols-[minmax(0,auto)_auto] gap-x-4 gap-y-0.5 text-xs text-muted">
+              <template v-if="i.estimated_amount != null">
+                <dt>
+                  Precio base
+                </dt>
+                <dd class="text-right tabular-nums">
+                  {{ formatMoney(i.estimated_amount, i.currency) }}
+                </dd>
+              </template>
+              <template v-for="(extra, idx) in i.extras" :key="idx">
+                <dt class="break-words">
+                  + {{ extra.name }}
+                </dt>
+                <dd class="text-right tabular-nums">
+                  {{ formatMoney(extra.amount, i.currency) }}
+                </dd>
+              </template>
+              <dt class="font-medium text-default">
+                Total estimado
+              </dt>
+              <dd class="text-right font-medium tabular-nums text-default">
+                {{ formatMoney(estimatedTotal(i)!, i.currency) }}
+              </dd>
+            </dl>
             <p v-if="i.notes" class="mt-0.5 whitespace-pre-line text-xs text-muted">
               {{ i.notes }}
             </p>
