@@ -1,6 +1,6 @@
 <script setup lang="ts" generic="T extends BudgetItemView">
 import {
-  BUDGET_CATEGORIES, BUDGET_CATEGORY_META, actualBase, estimatedBase, formatMoney, roundMoney,
+  BUDGET_CATEGORIES, BUDGET_CATEGORY_META, actualBase, estimatedBase, estimatedTotal, formatMoney, roundMoney,
   type BudgetItemView, type Rates,
 } from '~~/shared/utils/budget'
 
@@ -31,7 +31,7 @@ const groups = computed(() => BUDGET_CATEGORIES.map((category) => {
 
 /** Equivalente en la moneda principal, solo si el ítem está en otra moneda */
 function estimatedHint(i: T) {
-  if (i.currency === props.base || i.estimated_amount == null) return null
+  if (i.currency === props.base || estimatedTotal(i) == null) return null
   const v = estimatedBase(i, props.base, props.rates)
   return v == null ? 'Sin tipo de cambio' : `≈ ${formatMoney(v, props.base)}`
 }
@@ -68,6 +68,11 @@ function people(i: T) {
             <p class="font-medium leading-snug">
               {{ i.name }}
             </p>
+            <ul v-if="i.extras?.length" class="mt-0.5 space-y-0.5 text-xs text-muted">
+              <li v-for="(extra, idx) in i.extras" :key="idx">
+                + {{ extra.name }} · {{ formatMoney(extra.amount, i.currency) }}
+              </li>
+            </ul>
             <p v-if="i.notes" class="mt-0.5 whitespace-pre-line text-xs text-muted">
               {{ i.notes }}
             </p>
@@ -98,13 +103,13 @@ function people(i: T) {
               <p v-if="actualHint(i)" class="text-xs text-muted">
                 {{ actualHint(i) }}
               </p>
-              <p v-if="i.estimated_amount != null" class="text-xs text-dimmed">
-                Estimado {{ formatMoney(i.estimated_amount, i.currency) }}
+              <p v-if="estimatedTotal(i) != null" class="text-xs text-dimmed">
+                Estimado {{ formatMoney(estimatedTotal(i)!, i.currency) }}
               </p>
             </template>
-            <template v-else-if="i.estimated_amount != null">
+            <template v-else-if="estimatedTotal(i) != null">
               <p class="font-semibold">
-                {{ formatMoney(i.estimated_amount, i.currency) }}
+                {{ formatMoney(estimatedTotal(i)!, i.currency) }}
               </p>
               <p v-if="estimatedHint(i)" class="text-xs text-muted">
                 {{ estimatedHint(i) }}
