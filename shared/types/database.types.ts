@@ -58,6 +58,7 @@ export type Database = {
           created_at: string
           currency: string
           estimated_amount: number | null
+          extras: Json
           id: string
           name: string
           notes: string | null
@@ -75,6 +76,7 @@ export type Database = {
           created_at?: string
           currency: string
           estimated_amount?: number | null
+          extras?: Json
           id?: string
           name: string
           notes?: string | null
@@ -92,6 +94,7 @@ export type Database = {
           created_at?: string
           currency?: string
           estimated_amount?: number | null
+          extras?: Json
           id?: string
           name?: string
           notes?: string | null
@@ -598,6 +601,7 @@ export type Database = {
         Args: { p_email: string; p_trip_id: string }
         Returns: string
       }
+      budget_extras_valid: { Args: { p: Json }; Returns: boolean }
       is_trip_admin: { Args: { p_trip_id: string }; Returns: boolean }
       is_trip_owner: { Args: { p_trip_id: string }; Returns: boolean }
       member_get_trip: { Args: { p_token: string }; Returns: Json }

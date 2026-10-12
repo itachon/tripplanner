@@ -1,6 +1,6 @@
 import type { InjectionKey } from 'vue'
 import type { Database } from '~~/shared/types/database.types'
-import { balances, settle, summarize, type Rates } from '~~/shared/utils/budget'
+import { balances, settle, summarize, type BudgetExtra, type Rates } from '~~/shared/utils/budget'
 
 export type Trip = Database['public']['Tables']['trips']['Row']
 export type Member = Database['public']['Tables']['members']['Row']
@@ -9,7 +9,7 @@ export type PlaceInfoRow = Database['public']['Tables']['place_info']['Row']
 export type Stop = Database['public']['Tables']['itinerary_stops']['Row']
 export type Vote = Database['public']['Tables']['votes']['Row']
 export type BudgetItemRow = Database['public']['Tables']['budget_items']['Row']
-export type BudgetItem = BudgetItemRow & { member_ids: string[] }
+export type BudgetItem = Omit<BudgetItemRow, 'extras'> & { extras: BudgetExtra[], member_ids: string[] }
 export type ExchangeRate = Database['public']['Tables']['trip_exchange_rates']['Row']
 export interface TripAdminRow {
   user_id: string
@@ -86,7 +86,12 @@ export async function useTripAdmin(tripId: string) {
       list.push(s.member_id)
       byItem.set(s.item_id, list)
     }
-    return (data.value?.budgetItems ?? []).map(i => ({ ...i, member_ids: byItem.get(i.id) ?? [] }))
+    return (data.value?.budgetItems ?? []).map(i => ({
+      ...i,
+      // la columna llega como Json; la base garantiza la forma (budget_items_extras_valid)
+      extras: (i.extras ?? []) as unknown as BudgetExtra[],
+      member_ids: byItem.get(i.id) ?? [],
+    }))
   })
 
   /** Entre cuántos se divide el "costo por persona": los que aceptaron, o todos si nadie ha aceptado */
