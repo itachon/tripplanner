@@ -2,6 +2,7 @@
 import type { MapMarker } from '~~/shared/types/map'
 import type { MemberPlace, MemberTripView } from '~~/shared/types/trip'
 import type { TimelineItem } from '~/components/itinerary/ItineraryTimeline.vue'
+import { balances, formatMoney, settle, summarize, type Rates } from '~~/shared/utils/budget'
 
 definePageMeta({ layout: false })
 
@@ -23,7 +24,7 @@ const tz = computed(() => trip.value?.time_zone ?? 'UTC')
 
 const busy = ref<string | null>(null)
 const declineOpen = ref(false)
-const tab = ref<'lugares' | 'itinerario'>('lugares')
+const tab = ref<'lugares' | 'itinerario' | 'presupuesto'>('lugares')
 const sortBy = ref<'votes' | 'order'>('votes')
 const selectedId = ref<string | null>(null)
 const hoverId = ref<string | null>(null)
@@ -168,6 +169,18 @@ const dayChips = computed(() => [
   { label: 'Todo', value: 'all' },
   ...days.value.map((d, i) => ({ label: d === today.value ? `Hoy · Día ${i + 1}` : `Día ${i + 1}`, value: d })),
 ])
+// ---------- Presupuesto ----------
+const budget = computed(() => view.value?.budget ?? null)
+const bRates = computed<Rates>(() => Object.fromEntries((budget.value?.rates ?? []).map(r => [r.currency, r.rate])))
+const bNames = computed(() => Object.fromEntries((budget.value?.members ?? []).map(m => [m.id, m.name])))
+const bPeople = computed(() => {
+  const all = budget.value?.members ?? []
+  return all.filter(m => m.status === 'accepted').length || all.length
+})
+const bSummary = computed(() => budget.value ? summarize(budget.value.items, budget.value.currency, bRates.value, bPeople.value) : null)
+const bBalances = computed(() => budget.value ? balances(budget.value.items, budget.value.currency, budget.value.members.map(m => m.id)) : [])
+const bTransfers = computed(() => budget.value ? settle(bBalances.value, budget.value.currency) : [])
+const myBalance = computed(() => bBalances.value.find(b => b.member_id === budget.value?.me) ?? null)
 </script>
 
 <template>
@@ -277,19 +290,19 @@ const dayChips = computed(() => [
         <!-- Pestañas -->
         <div class="mt-8 flex gap-1 border-b border-default">
           <button
-            v-for="t in [{ v: 'lugares', l: 'Lugares', i: 'i-lucide-map-pin', n: votable.length }, { v: 'itinerario', l: 'Itinerario', i: 'i-lucide-calendar-days', n: 0 }]"
+            v-for="t in [{ v: 'lugares', l: 'Lugares', i: 'i-lucide-map-pin', n: votable.length }, { v: 'itinerario', l: 'Itinerario', i: 'i-lucide-calendar-days', n: 0 }, { v: 'presupuesto', l: 'Presupuesto', i: 'i-lucide-wallet', n: 0 }]"
             :key="t.v"
             type="button"
             class="-mb-px flex items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition"
             :class="tab === t.v ? 'border-primary text-primary' : 'border-transparent text-muted hover:text-default'"
-            @click="tab = t.v as 'lugares' | 'itinerario'"
+            @click="tab = t.v as 'lugares' | 'itinerario' | 'presupuesto'"
           >
             <UIcon :name="t.i" class="size-4" />
             {{ t.l }}
             <UBadge v-if="t.n" size="sm" color="neutral" variant="subtle">
               {{ t.n }}
             </UBadge>
-            <UIcon v-if="t.v === 'itinerario' && !view.itinerary_published" name="i-lucide-lock" class="size-3.5" />
+            <UIcon v-if="(t.v === 'itinerario' && !view.itinerary_published) || (t.v === 'presupuesto' && !view.budget_published)" name="i-lucide-lock" class="size-3.5" />
           </button>
         </div>
 
@@ -523,6 +536,83 @@ const dayChips = computed(() => [
                 </div>
               </div>
             </div>
+          </template>
+        </section>
+        <!-- Presupuesto -->
+        <section v-show="tab === 'presupuesto'" class="pt-5">
+          <UEmpty
+            v-if="!budget || !bSummary"
+            icon="i-lucide-wallet"
+            title="El presupuesto está en preparación"
+            description="Quien organiza el viaje lo publicará cuando esté listo."
+            class="rounded-lg border border-dashed border-default py-12"
+          />
+          <template v-else>
+            <div class="mb-4 grid gap-3 sm:grid-cols-3">
+              <UCard :ui="{ body: 'p-4 sm:p-4' }">
+                <p class="text-xs text-muted">
+                  Costo estimado por persona
+                </p>
+                <p class="mt-1 text-xl font-bold">
+                  {{ formatMoney(bSummary.perPerson, budget.currency) }}
+                </p>
+                <p class="text-xs text-muted">
+                  Total del viaje {{ formatMoney(bSummary.estimated, budget.currency) }}
+                </p>
+              </UCard>
+              <UCard :ui="{ body: 'p-4 sm:p-4' }">
+                <p class="text-xs text-muted">
+                  Tu parte de lo ya pagado
+                </p>
+                <p class="mt-1 text-xl font-bold">
+                  {{ formatMoney(myBalance?.owed ?? 0, budget.currency) }}
+                </p>
+                <p class="text-xs text-muted">
+                  Has pagado {{ formatMoney(myBalance?.paid ?? 0, budget.currency) }}
+                </p>
+              </UCard>
+              <UCard :ui="{ body: 'p-4 sm:p-4' }">
+                <p class="text-xs text-muted">
+                  Tu saldo
+                </p>
+                <p class="mt-1 text-xl font-bold" :class="(myBalance?.balance ?? 0) > 0 ? 'text-success' : (myBalance?.balance ?? 0) < 0 ? 'text-error' : ''">
+                  {{ formatMoney(Math.abs(myBalance?.balance ?? 0), budget.currency) }}
+                </p>
+                <p class="text-xs text-muted">
+                  {{ (myBalance?.balance ?? 0) > 0 ? 'Te deben' : (myBalance?.balance ?? 0) < 0 ? 'Debes' : 'Estás a mano' }}
+                </p>
+              </UCard>
+            </div>
+
+            <UEmpty
+              v-if="!budget.items.length"
+              icon="i-lucide-wallet"
+              title="Aún no hay ítems en el presupuesto"
+              class="rounded-lg border border-dashed border-default py-10"
+            />
+            <BudgetItemList
+              v-else
+              :items="budget.items"
+              :base="budget.currency"
+              :rates="bRates"
+              :member-names="bNames"
+              :me-id="budget.me"
+            />
+
+            <UCard class="mt-4">
+              <template #header>
+                <h3 class="font-semibold">
+                  Cuentas del grupo
+                </h3>
+              </template>
+              <BudgetBalances
+                :balances="bBalances"
+                :transfers="bTransfers"
+                :base="budget.currency"
+                :member-names="bNames"
+                :me-id="budget.me"
+              />
+            </UCard>
           </template>
         </section>
       </main>
