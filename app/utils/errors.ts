@@ -17,6 +17,8 @@ const CONSTRAINTS: Record<string, string> = {
   budget_currency_locked: 'No se puede cambiar la moneda principal porque ya hay gastos pagados registrados en la moneda actual.',
   budget_item_has_amount: 'El ítem necesita un costo estimado o un gasto real.',
   budget_item_rate_when_paid: 'Falta el tipo de cambio del gasto.',
+  budget_items_extras_valid: 'Revisa los extras: cada uno necesita un nombre y un monto válido, y no pueden ser más de 20.',
+  budget_items_extras_only_tickets: 'Solo las entradas pueden tener extras. Quítalos o deja la categoría en Entradas.',
   BUDGET_ITEM_NOT_FOUND: 'Ese ítem del presupuesto ya no existe.',
   'Zona horaria no válida': 'La zona horaria no es válida.',
 }

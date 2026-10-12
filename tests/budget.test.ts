@@ -236,3 +236,12 @@ test('parseExtraRows: no deja pasar más de 20 extras', () => {
   assert.equal(r.extras.length, 20)
   assert.deepEqual(r.errors, [{ index: 20, field: 'name', message: 'Máximo 20 extras' }])
 })
+
+test('parseExtraRows: redondea los montos a dos decimales', () => {
+  const r = parseExtraRows([
+    { name: 'Propina', amount: '10.006' },
+    { name: 'Tasa', amount: '0,004' },
+  ])
+  assert.deepEqual(r.extras, [{ name: 'Propina', amount: 10.01 }, { name: 'Tasa', amount: 0 }])
+  assert.deepEqual(r.errors, [])
+})

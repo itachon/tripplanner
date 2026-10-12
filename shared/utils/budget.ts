@@ -267,7 +267,7 @@ export function parseExtraRows(rows: ExtraRow[]): { extras: BudgetExtra[], error
     if (!amountOk) errors.push({ index, field: 'amount', message: 'Ingresa un monto válido' })
     if (!nameOk || !amountOk) return
     if (extras.length >= MAX_BUDGET_EXTRAS) errors.push({ index, field: 'name', message: `Máximo ${MAX_BUDGET_EXTRAS} extras` })
-    else extras.push({ name, amount })
+    else extras.push({ name, amount: cents(amount) })
   })
   return { extras, errors }
 }
