@@ -23,6 +23,7 @@ const tabs = computed<TabsItem[]>(() => [
   { label: 'Resumen', icon: 'i-lucide-layout-dashboard', value: 'resumen', slot: 'resumen' as const },
   { label: 'Lugares', icon: 'i-lucide-map-pin', value: 'lugares', slot: 'lugares' as const, badge: stats.value.places || undefined },
   { label: 'Itinerario', icon: 'i-lucide-calendar-days', value: 'itinerario', slot: 'itinerario' as const, badge: stats.value.stops || undefined },
+  { label: 'Presupuesto', icon: 'i-lucide-wallet', value: 'presupuesto', slot: 'presupuesto' as const, badge: stats.value.budgetItems || undefined },
   { label: 'Viajeros', icon: 'i-lucide-users', value: 'viajeros', slot: 'viajeros' as const, badge: stats.value.members || undefined },
   { label: 'Administradores', icon: 'i-lucide-shield', value: 'admins', slot: 'admins' as const },
   { label: 'Ajustes', icon: 'i-lucide-settings', value: 'ajustes', slot: 'ajustes' as const },
@@ -77,6 +78,9 @@ const stopOpen = computed({
           <UBadge v-else color="warning" variant="subtle" icon="i-lucide-eye-off">
             Itinerario oculto
           </UBadge>
+          <UBadge v-if="trip.budget_published" color="success" variant="subtle" icon="i-lucide-wallet">
+            Presupuesto publicado
+          </UBadge>
         </div>
       </div>
       <UButton color="neutral" variant="outline" icon="i-lucide-pencil" @click="editOpen = true">
@@ -99,6 +103,9 @@ const stopOpen = computed({
       </template>
       <template #itinerario>
         <ItineraryPanel class="pt-6" />
+      </template>
+      <template #presupuesto>
+        <BudgetPanel class="pt-6" />
       </template>
       <template #viajeros>
         <MembersPanel class="pt-6" />
