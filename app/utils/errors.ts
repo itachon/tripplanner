@@ -14,6 +14,10 @@ const CONSTRAINTS: Record<string, string> = {
   stop_day_outside_trip: 'El día de la parada está fuera de las fechas del viaje.',
   stop_times_valid: 'La hora de término debe ser posterior a la de inicio.',
   stop_has_subject: 'La parada necesita un lugar o una descripción.',
+  budget_currency_locked: 'No se puede cambiar la moneda principal porque ya hay gastos pagados registrados en la moneda actual.',
+  budget_item_has_amount: 'El ítem necesita un costo estimado o un gasto real.',
+  budget_item_rate_when_paid: 'Falta el tipo de cambio del gasto.',
+  BUDGET_ITEM_NOT_FOUND: 'Ese ítem del presupuesto ya no existe.',
   'Zona horaria no válida': 'La zona horaria no es válida.',
 }
 

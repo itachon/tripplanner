@@ -1,5 +1,6 @@
 import type { InjectionKey } from 'vue'
 import type { Database } from '~~/shared/types/database.types'
+import { balances, settle, summarize, type Rates } from '~~/shared/utils/budget'
 
 export type Trip = Database['public']['Tables']['trips']['Row']
 export type Member = Database['public']['Tables']['members']['Row']
@@ -7,6 +8,9 @@ export type Place = Database['public']['Tables']['places']['Row']
 export type PlaceInfoRow = Database['public']['Tables']['place_info']['Row']
 export type Stop = Database['public']['Tables']['itinerary_stops']['Row']
 export type Vote = Database['public']['Tables']['votes']['Row']
+export type BudgetItemRow = Database['public']['Tables']['budget_items']['Row']
+export type BudgetItem = BudgetItemRow & { member_ids: string[] }
+export type ExchangeRate = Database['public']['Tables']['trip_exchange_rates']['Row']
 export interface TripAdminRow {
   user_id: string
   created_at: string
@@ -25,7 +29,7 @@ export async function useTripAdmin(tripId: string) {
   const { client, userId } = useDb()
 
   const { data, error, refresh, status } = await useAsyncData(`trip-admin-${tripId}`, async () => {
-    const [trip, members, places, stops, votes, admins, placeInfo] = await Promise.all([
+    const [trip, members, places, stops, votes, admins, placeInfo, budgetItems, budgetShares, exchangeRates] = await Promise.all([
       client.from('trips').select('*, owner:profiles!trips_owner_id_fkey(email, full_name)').eq('id', tripId).maybeSingle(),
       client.from('members').select('*').eq('trip_id', tripId).order('created_at'),
       client.from('places').select('*').eq('trip_id', tripId).order('sort_order').order('created_at'),
@@ -33,8 +37,11 @@ export async function useTripAdmin(tripId: string) {
       client.from('votes').select('*').eq('trip_id', tripId),
       client.from('trip_admins').select('user_id, created_at, profile:profiles!trip_admins_user_id_fkey(email, full_name)').eq('trip_id', tripId).order('created_at'),
       client.from('place_info').select('*').eq('trip_id', tripId),
+      client.from('budget_items').select('*').eq('trip_id', tripId).order('sort_order').order('created_at'),
+      client.from('budget_item_shares').select('item_id, member_id').eq('trip_id', tripId),
+      client.from('trip_exchange_rates').select('*').eq('trip_id', tripId).order('currency'),
     ])
-    for (const r of [trip, members, places, stops, votes, admins, placeInfo]) {
+    for (const r of [trip, members, places, stops, votes, admins, placeInfo, budgetItems, budgetShares, exchangeRates]) {
       if (r.error) throw r.error
     }
     return {
@@ -45,6 +52,9 @@ export async function useTripAdmin(tripId: string) {
       votes: (votes.data ?? []) as Vote[],
       admins: (admins.data ?? []) as unknown as TripAdminRow[],
       placeInfo: (placeInfo.data ?? []) as PlaceInfoRow[],
+      budgetItems: (budgetItems.data ?? []) as BudgetItemRow[],
+      budgetShares: budgetShares.data ?? [],
+      exchangeRates: (exchangeRates.data ?? []) as ExchangeRate[],
     }
   })
 
@@ -63,6 +73,27 @@ export async function useTripAdmin(tripId: string) {
 
   const placeById = computed(() => new Map(places.value.map(p => [p.id, p])))
   const memberById = computed(() => new Map(members.value.map(m => [m.id, m])))
+
+  // ---- Presupuesto ----
+  const baseCurrency = computed(() => trip.value?.budget_currency ?? 'CLP')
+  const exchangeRates = computed(() => data.value?.exchangeRates ?? [])
+  const rates = computed<Rates>(() => Object.fromEntries(exchangeRates.value.map(r => [r.currency, r.rate])))
+
+  const budgetItems = computed<BudgetItem[]>(() => {
+    const byItem = new Map<string, string[]>()
+    for (const s of data.value?.budgetShares ?? []) {
+      const list = byItem.get(s.item_id) ?? []
+      list.push(s.member_id)
+      byItem.set(s.item_id, list)
+    }
+    return (data.value?.budgetItems ?? []).map(i => ({ ...i, member_ids: byItem.get(i.id) ?? [] }))
+  })
+
+  /** Entre cuántos se divide el "costo por persona": los que aceptaron, o todos si nadie ha aceptado */
+  const budgetPeople = computed(() => members.value.filter(m => m.status === 'accepted').length || members.value.length)
+  const budgetSummary = computed(() => summarize(budgetItems.value, baseCurrency.value, rates.value, budgetPeople.value))
+  const budgetBalances = computed(() => balances(budgetItems.value, baseCurrency.value, members.value.map(m => m.id)))
+  const budgetTransfers = computed(() => settle(budgetBalances.value, baseCurrency.value))
 
   /** place_id → miembros que votaron */
   const votersByPlace = computed(() => {
@@ -124,6 +155,7 @@ export async function useTripAdmin(tripId: string) {
     votable: places.value.filter(p => p.votable).length,
     votes: votes.value.length,
     stops: stops.value.length,
+    budgetItems: budgetItems.value.length,
     daysWithStops: [...stopsByDay.value.values()].filter(l => l.length).length,
   }))
 
@@ -141,6 +173,7 @@ export async function useTripAdmin(tripId: string) {
     trip, members, places, stops, votes, admins, placeInfo,
     isOwner, isClosed, tz, days, stats, ranking,
     placeById, memberById, votersByPlace, votesByMember, stopsByDay, stopsByPlace, placeInfoByPlace,
+    budgetItems, exchangeRates, rates, baseCurrency, budgetPeople, budgetSummary, budgetBalances, budgetTransfers,
     stopTitle, stopDraft, openStopForm,
   }
 }
