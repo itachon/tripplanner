@@ -2,8 +2,9 @@
 import { PGlite } from '@electric-sql/pglite'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const MIG = path.join(path.dirname(new URL(import.meta.url).pathname), '../migrations')
+const MIG = fileURLToPath(new URL('../migrations', import.meta.url))
 const db = new PGlite()
 
 // ---- Stub mínimo de Supabase: roles, auth, storage, grants por defecto ----
@@ -164,11 +165,10 @@ check('hora en formato HH:MM', g.itinerary[0].start_time === '06:30' && g.itiner
 pl = await mplaces(tPedro)
 check('el hotel aparece al estar en el itinerario publicado', pl.some(p => p.id === pHotel && p.in_itinerary && !p.votable))
 
-console.log('\nFicha de IA')
-await db.query(`update public.places set ai_status='pending', ai_info='{"summary":"borrador"}' where id=$1`, [pTorre])
-check('ficha pendiente no se muestra', (await mplaces(tPedro)).find(p => p.id === pTorre).ai_info === null)
-await db.query(`update public.places set ai_status='ready', ai_info='{"summary":"Torre icónica"}' where id=$1`, [pTorre])
-check('ficha lista sí se muestra', (await mplaces(tPedro)).find(p => p.id === pTorre).ai_info.summary === 'Torre icónica')
+console.log('\nInfo automática')
+check('sin place_info, info = null', (await mplaces(tPedro)).find(p => p.id === pTorre).info === null)
+await db.query(`insert into public.place_info (place_id, trip_id, history) values ($1,$2,'Torre icónica')`, [pTorre, trip.id])
+check('con place_info, se muestra', (await mplaces(tPedro)).find(p => p.id === pTorre).info.history === 'Torre icónica')
 
 console.log('\nFecha límite')
 await db.query(`update public.trips set rsvp_deadline = now() - interval '1 minute' where id = $1`, [trip.id])
