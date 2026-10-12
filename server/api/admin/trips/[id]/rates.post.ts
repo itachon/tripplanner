@@ -20,7 +20,11 @@ export default defineEventHandler(async (event) => {
 
   // Todo con el cliente del usuario: RLS decide si es administrador del viaje.
   const client = await serverSupabaseClient<Database>(event)
-  const { data: trip } = await client.from('trips').select('id, budget_currency').eq('id', id).maybeSingle()
+  const { data: trip, error: tripError } = await client.from('trips').select('id, budget_currency').eq('id', id).maybeSingle()
+  if (tripError) {
+    console.error('[trip-rates]', tripError)
+    throw createError({ statusCode: 500, message: 'No se pudo leer el viaje.' })
+  }
   if (!trip) throw createError({ statusCode: 404, message: 'Viaje no encontrado.' })
 
   const body = await readBody<{ currencies?: unknown } | null>(event).catch(() => null)
@@ -29,10 +33,14 @@ export default defineEventHandler(async (event) => {
     ? asked.filter((c): c is string => typeof c === 'string' && CODE_RE.test(c))
     : []
 
-  const [{ data: items }, { data: existing }] = await Promise.all([
+  const [{ data: items, error: itemsError }, { data: existing, error: existingError }] = await Promise.all([
     client.from('budget_items').select('currency').eq('trip_id', id),
     client.from('trip_exchange_rates').select('currency, source').eq('trip_id', id),
   ])
+  if (itemsError || existingError) {
+    console.error('[trip-rates]', itemsError ?? existingError)
+    throw createError({ statusCode: 500, message: 'No se pudieron leer los tipos de cambio.' })
+  }
   const manual = new Set((existing ?? []).filter(r => r.source === 'manual').map(r => r.currency))
   const wanted = [...new Set([
     ...(items ?? []).map(i => i.currency),
@@ -55,6 +63,10 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const { data } = await client.from('trip_exchange_rates').select('*').eq('trip_id', id).order('currency')
+  const { data, error: finalError } = await client.from('trip_exchange_rates').select('*').eq('trip_id', id).order('currency')
+  if (finalError) {
+    console.error('[trip-rates]', finalError)
+    throw createError({ statusCode: 500, message: 'No se pudieron leer los tipos de cambio.' })
+  }
   return data ?? []
 })
