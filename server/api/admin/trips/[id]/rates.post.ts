@@ -1,5 +1,6 @@
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 import type { Database } from '~~/shared/types/database.types'
+import { BUDGET_CURRENCIES } from '~~/shared/utils/budget'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const CODE_RE = /^[A-Z]{3}$/
@@ -7,7 +8,7 @@ const CODE_RE = /^[A-Z]{3}$/
 /**
  * POST /api/admin/trips/:id/rates  { currencies?: string[] }
  * Actualiza los tipos de cambio automáticos del viaje: los de las monedas
- * usadas en el presupuesto, los ya guardados y los que se pidan en el cuerpo
+ * usadas en el presupuesto y las que se pidan (hasta 3) en el cuerpo
  * (para conocer el cambio de una moneda antes de guardar su primer ítem).
  * Los marcados como "manual" no se tocan. Devuelve todos los del viaje.
  */
@@ -30,7 +31,7 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<{ currencies?: unknown } | null>(event).catch(() => null)
   const asked = body?.currencies
   const extra = Array.isArray(asked)
-    ? asked.filter((c): c is string => typeof c === 'string' && CODE_RE.test(c))
+    ? [...new Set(asked.filter((c): c is string => typeof c === 'string' && CODE_RE.test(c) && (BUDGET_CURRENCIES as readonly string[]).includes(c)))].slice(0, 3)
     : []
 
   const [{ data: items, error: itemsError }, { data: existing, error: existingError }] = await Promise.all([
@@ -42,11 +43,8 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 500, message: 'No se pudieron leer los tipos de cambio.' })
   }
   const manual = new Set((existing ?? []).filter(r => r.source === 'manual').map(r => r.currency))
-  const wanted = [...new Set([
-    ...(items ?? []).map(i => i.currency),
-    ...(existing ?? []).map(r => r.currency),
-    ...extra,
-  ])].filter(c => c !== trip.budget_currency && !manual.has(c))
+  const used = new Set([...(items ?? []).map(i => i.currency), ...extra])
+  const wanted = [...used].filter(c => c !== trip.budget_currency && !manual.has(c))
 
   if (wanted.length) {
     const rates = await fetchRates(trip.budget_currency, wanted).catch(() => null)
@@ -60,6 +58,16 @@ export default defineEventHandler(async (event) => {
         console.error('[trip-rates]', error)
         throw createError({ statusCode: 500, message: 'No se pudo guardar el tipo de cambio.' })
       }
+    }
+  }
+
+  // Las automáticas de monedas que ya nadie usa se quitan (las manuales no)
+  const stale = (existing ?? []).filter(r => r.source === 'auto' && !used.has(r.currency)).map(r => r.currency)
+  if (stale.length) {
+    const { error } = await client.from('trip_exchange_rates').delete().eq('trip_id', id).eq('source', 'auto').in('currency', stale)
+    if (error) {
+      console.error('[trip-rates]', error)
+      throw createError({ statusCode: 500, message: 'No se pudo guardar el tipo de cambio.' })
     }
   }
 
