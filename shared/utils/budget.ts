@@ -20,6 +20,15 @@ export const BUDGET_CURRENCIES = [
   'INR', 'TRY', 'AED', 'ZAR', 'SEK', 'NOK', 'DKK', 'CZK', 'PLN', 'HUF', 'ILS', 'EGP', 'MAD',
 ] as const
 
+export const MAX_BUDGET_EXTRAS = 20
+
+/** Cargo adicional de una entrada. Es alias y no interface para que sea asignable a Json al guardar */
+export type BudgetExtra = { name: string, amount: number }
+
+/** Fila de extra tal como se edita en el formulario */
+export interface ExtraRow { name: string, amount: string | number }
+export interface ExtraRowError { index: number, field: 'name' | 'amount', message: string }
+
 /** Lo mínimo de un ítem que necesitan los cálculos */
 export interface BudgetItemLike {
   id: string
@@ -33,6 +42,8 @@ export interface BudgetItemLike {
   paid_by: string | null
   /** viajeros entre los que se reparte */
   member_ids: string[]
+  /** cargos adicionales (solo en entradas), en la moneda del ítem */
+  extras?: BudgetExtra[]
 }
 
 /** Ítem tal como se muestra en la lista (admin y viajero) */
@@ -84,11 +95,25 @@ export function rateFor(currency: string, base: string, rates: Rates): number | 
   return r && r > 0 ? r : null
 }
 
-/** Costo estimado en la moneda principal, con el cambio actual del viaje */
+const cents = (amount: number) => Math.round(amount * 100) / 100
+
+/** Suma de los extras, en la moneda del ítem */
+export function extrasTotal(item: BudgetItemLike): number {
+  return cents((item.extras ?? []).reduce((t, e) => t + e.amount, 0))
+}
+
+/** Estimado del ítem en su moneda: precio base + extras. null si no tiene ninguno de los dos */
+export function estimatedTotal(item: BudgetItemLike): number | null {
+  if (item.estimated_amount == null && !item.extras?.length) return null
+  return cents((item.estimated_amount ?? 0) + extrasTotal(item))
+}
+
+/** Costo estimado (con extras) en la moneda principal, con el cambio actual del viaje */
 export function estimatedBase(item: BudgetItemLike, base: string, rates: Rates): number | null {
-  if (item.estimated_amount == null) return null
+  const total = estimatedTotal(item)
+  if (total == null) return null
   const r = rateFor(item.currency, base, rates)
-  return r == null ? null : roundMoney(item.estimated_amount * r, base)
+  return r == null ? null : roundMoney(total * r, base)
 }
 
 /** Gasto real en la moneda principal, con el cambio congelado del ítem */
@@ -110,7 +135,7 @@ export function summarize(items: BudgetItemLike[], base: string, rates: Rates, p
     row.count++
     const est = estimatedBase(it, base, rates)
     const act = actualBase(it, base)
-    if (it.estimated_amount != null && est == null) missing.add(it.currency)
+    if (estimatedTotal(it) != null && est == null) missing.add(it.currency)
     if (est != null) row.estimated += est
     if (act != null) row.actual += act
     if (est != null && act != null) variance += act - est
@@ -220,4 +245,29 @@ export function currencyLabel(code: string): string {
   catch {
     return code
   }
+}
+
+/**
+ * Lee las filas de extras del formulario. Una fila con nombre y monto
+ * vacíos se ignora; las demás deben tener ambos. Solo las filas válidas
+ * quedan en `extras`.
+ */
+export function parseExtraRows(rows: ExtraRow[]): { extras: BudgetExtra[], errors: ExtraRowError[] } {
+  const extras: BudgetExtra[] = []
+  const errors: ExtraRowError[] = []
+  rows.forEach((row, index) => {
+    const name = row.name.trim()
+    const raw = String(row.amount ?? '').trim().replace(',', '.')
+    if (!name && !raw) return
+    const amount = raw === '' ? Number.NaN : Number(raw)
+    const amountOk = Number.isFinite(amount) && amount >= 0 && amount < 1e12
+    const nameOk = name.length >= 1 && name.length <= 120
+    if (!name) errors.push({ index, field: 'name', message: 'Ponle un nombre al extra' })
+    else if (!nameOk) errors.push({ index, field: 'name', message: 'Máximo 120 caracteres' })
+    if (!amountOk) errors.push({ index, field: 'amount', message: 'Ingresa un monto válido' })
+    if (!nameOk || !amountOk) return
+    if (extras.length >= MAX_BUDGET_EXTRAS) errors.push({ index, field: 'name', message: `Máximo ${MAX_BUDGET_EXTRAS} extras` })
+    else extras.push({ name, amount })
+  })
+  return { extras, errors }
 }

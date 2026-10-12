@@ -1,7 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  actualBase, balances, currencyDecimals, estimatedBase, roundMoney, settle, splitEqually, summarize,
+  actualBase, balances, currencyDecimals, estimatedBase, estimatedTotal, extrasTotal, parseExtraRows,
+  roundMoney, settle, splitEqually, summarize,
   type BudgetItemLike,
 } from '../shared/utils/budget.ts'
 
@@ -138,4 +139,100 @@ test('settle: con decimales no deja residuos', () => {
     { from: 'beto', to: 'ana', amount: 3.33 },
     { from: 'caro', to: 'ana', amount: 3.33 },
   ])
+})
+
+test('estimatedTotal: precio base más extras, en la moneda del ítem', () => {
+  const extras = [{ name: 'Audioguía', amount: 3000 }, { name: 'Foto', amount: 1500 }]
+  assert.equal(extrasTotal(item({ estimated_amount: 20000, extras })), 4500)
+  assert.equal(estimatedTotal(item({ estimated_amount: 20000, extras })), 24500)
+  assert.equal(estimatedTotal(item({ estimated_amount: 20000, extras: [] })), 20000)
+  assert.equal(estimatedTotal(item({ currency: 'USD', estimated_amount: 0.1, extras: [{ name: 'x', amount: 0.2 }] })), 0.3)
+})
+
+test('estimatedTotal: ítem sin la clave extras se calcula como sin extras', () => {
+  assert.equal(extrasTotal(item({ estimated_amount: 20000 })), 0)
+  assert.equal(estimatedTotal(item({ estimated_amount: 20000 })), 20000)
+  assert.equal(estimatedTotal(item({})), null)
+  assert.equal(estimatedTotal(item({ extras: [] })), null)
+})
+
+test('estimatedTotal: extras sin precio base; un extra de monto 0 cuenta', () => {
+  assert.equal(estimatedTotal(item({ extras: [{ name: 'Audioguía', amount: 3000 }] })), 3000)
+  assert.equal(estimatedTotal(item({ extras: [{ name: 'Incluido', amount: 0 }] })), 0)
+})
+
+test('estimatedBase: convierte el total con extras con el cambio del viaje', () => {
+  const it = item({ currency: 'KRW', estimated_amount: 20000, extras: [{ name: 'Audioguía', amount: 3000 }] })
+  assert.equal(estimatedBase(it, 'CLP', { KRW: 0.73 }), 16790) // 23.000 × 0,73
+  assert.equal(estimatedBase(it, 'CLP', {}), null)
+})
+
+test('summarize: los extras entran en el estimado, la diferencia y el costo por persona', () => {
+  const s = summarize([
+    item({ id: 'a', category: 'tickets', estimated_amount: 20000, extras: [{ name: 'Audioguía', amount: 3000 }], actual_amount: 25000, actual_rate: 1 }),
+  ], 'CLP', {}, 2)
+  assert.equal(s.estimated, 23000)
+  assert.equal(s.actual, 25000)
+  assert.equal(s.variance, 2000)
+  assert.equal(s.perPerson, 11500)
+})
+
+test('summarize: informa la moneda sin cambio aunque el ítem solo tenga extras', () => {
+  const s = summarize([
+    item({ id: 'a', category: 'tickets', currency: 'THB', actual_amount: 100, actual_rate: 40, extras: [{ name: 'Audioguía', amount: 50 }] }),
+  ], 'CLP', {}, 1)
+  assert.deepEqual(s.missingRates, ['THB'])
+})
+
+test('balances: los extras no cambian el reparto, que depende del monto pagado', () => {
+  const base = { actual_amount: 100, actual_rate: 1, paid_by: 'ana', member_ids: ['ana', 'beto'] }
+  assert.deepEqual(
+    balances([item({ ...base, extras: [{ name: 'Audioguía', amount: 30 }] })], 'CLP', ['ana', 'beto']),
+    balances([item(base)], 'CLP', ['ana', 'beto']),
+  )
+})
+
+test('parseExtraRows: recorta nombres, acepta coma decimal y números, ignora filas vacías', () => {
+  const r = parseExtraRows([
+    { name: ' Audioguía ', amount: '3000' },
+    { name: '', amount: '' },
+    { name: 'Foto', amount: '1,5' },
+    { name: 'Incluido', amount: 0 },
+    { name: 'Foto', amount: 2 },
+  ])
+  assert.deepEqual(r.extras, [
+    { name: 'Audioguía', amount: 3000 },
+    { name: 'Foto', amount: 1.5 },
+    { name: 'Incluido', amount: 0 },
+    { name: 'Foto', amount: 2 },
+  ])
+  assert.deepEqual(r.errors, [])
+})
+
+test('parseExtraRows: marca el error en la fila y el campo, y no guarda la fila', () => {
+  const r = parseExtraRows([
+    { name: '', amount: '10' },
+    { name: 'Sin monto', amount: '' },
+    { name: 'Texto', amount: 'abc' },
+    { name: 'Negativo', amount: '-1' },
+    { name: 'x'.repeat(121), amount: '1' },
+    { name: '  ', amount: 'abc' },
+  ])
+  assert.deepEqual(r.extras, [])
+  assert.deepEqual(r.errors, [
+    { index: 0, field: 'name', message: 'Ponle un nombre al extra' },
+    { index: 1, field: 'amount', message: 'Ingresa un monto válido' },
+    { index: 2, field: 'amount', message: 'Ingresa un monto válido' },
+    { index: 3, field: 'amount', message: 'Ingresa un monto válido' },
+    { index: 4, field: 'name', message: 'Máximo 120 caracteres' },
+    { index: 5, field: 'name', message: 'Ponle un nombre al extra' },
+    { index: 5, field: 'amount', message: 'Ingresa un monto válido' },
+  ])
+})
+
+test('parseExtraRows: no deja pasar más de 20 extras', () => {
+  const rows = Array.from({ length: 21 }, (_, i) => ({ name: `Extra ${i}`, amount: '1' }))
+  const r = parseExtraRows(rows)
+  assert.equal(r.extras.length, 20)
+  assert.deepEqual(r.errors, [{ index: 20, field: 'name', message: 'Máximo 20 extras' }])
 })
