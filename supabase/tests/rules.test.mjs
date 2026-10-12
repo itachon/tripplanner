@@ -165,6 +165,47 @@ check('hora en formato HH:MM', g.itinerary[0].start_time === '06:30' && g.itiner
 pl = await mplaces(tPedro)
 check('el hotel aparece al estar en el itinerario publicado', pl.some(p => p.id === pHotel && p.in_itinerary && !p.votable))
 
+console.log('\nPresupuesto')
+const [mJuan, mLucia, mPedro] = mem.map(r => r.id)
+const uuids = ids => `{${ids.join(',')}}`
+check('moneda principal CLP y presupuesto oculto por defecto', trip.budget_currency === 'CLP' && trip.budget_published === false)
+const item = (await as('authenticated', A, `insert into public.budget_items (trip_id, category, name, currency, estimated_amount)
+  values ($1,'lodging','Hotel','KRW',900000) returning *`, [trip.id])).rows[0]
+check('admin crea ítem', item.category === 'lodging' && item.actual_amount === null)
+check('C no crea ítems en viaje ajeno', /row-level security/.test(await err('authenticated', C, `insert into public.budget_items (trip_id, name, currency, estimated_amount) values ($1,'x','CLP',1)`, [trip.id])))
+check('C no ve ítems ajenos', (await as('authenticated', C, 'select * from public.budget_items')).rows.length === 0)
+check('anon sin acceso al presupuesto', /permission denied/.test(await err('anon', null, 'select * from public.budget_items')))
+check('ítem sin montos rechazado', /budget_item_has_amount/.test(await err('authenticated', A, `insert into public.budget_items (trip_id, name, currency) values ($1,'x','CLP')`, [trip.id])))
+check('moneda inválida rechazada', /budget_items_currency_check/.test(await err('authenticated', A, `insert into public.budget_items (trip_id, name, currency, estimated_amount) values ($1,'x','clp',1)`, [trip.id])))
+check('gasto real sin tipo de cambio rechazado', /budget_item_rate_when_paid/.test(await err('authenticated', A, `update public.budget_items set actual_amount = 950000 where id = $1`, [item.id])))
+const otherMember = (await as('authenticated', C, `insert into public.members (trip_id, name) values ($1,'Otro') returning id`, [otherTrip.id])).rows[0].id
+check('pagador de otro viaje rechazado', /foreign key|violates/.test(await err('authenticated', A, `update public.budget_items set paid_by = $2 where id = $1`, [item.id, otherMember]) ?? ''))
+await as('authenticated', A, `update public.budget_items set actual_amount = 950000, actual_rate = 0.73, paid_by = $2, paid_on = '2027-04-10' where id = $1`, [item.id, mJuan])
+await as('authenticated', A, 'select public.set_budget_item_shares($1,$2::uuid[])', [item.id, uuids([mJuan, mLucia, mPedro])])
+await as('authenticated', A, 'select public.set_budget_item_shares($1,$2::uuid[])', [item.id, uuids([mJuan, mLucia])])
+check('set_budget_item_shares reemplaza a los participantes', (await db.query('select count(*)::int n from public.budget_item_shares where item_id = $1', [item.id])).rows[0].n === 2)
+check('C no cambia participantes ajenos', /BUDGET_ITEM_NOT_FOUND/.test(await err('authenticated', C, 'select public.set_budget_item_shares($1,$2::uuid[])', [item.id, uuids([mJuan])])))
+check('participante de otro viaje rechazado', /foreign key|violates/.test(await err('authenticated', A, 'select public.set_budget_item_shares($1,$2::uuid[])', [item.id, uuids([otherMember])]) ?? ''))
+await as('authenticated', A, `insert into public.trip_exchange_rates (trip_id, currency, rate) values ($1,'KRW',0.73)`, [trip.id])
+check('C no ve tipos de cambio ajenos', (await as('authenticated', C, 'select * from public.trip_exchange_rates')).rows.length === 0)
+check('no se cambia la moneda principal con gastos pagados', /budget_currency_locked/.test(await err('authenticated', A, `update public.trips set budget_currency = 'USD' where id = $1`, [trip.id])))
+
+const tmp = (await as('authenticated', A, `insert into public.members (trip_id, name) values ($1,'Temporal') returning id`, [trip.id])).rows[0].id
+const tmpItem = (await as('authenticated', A, `insert into public.budget_items (trip_id, name, currency, actual_amount, actual_rate, paid_by)
+  values ($1,'Taxi','CLP',10000,1,$2) returning id`, [trip.id, tmp])).rows[0].id
+await as('authenticated', A, 'delete from public.members where id = $1', [tmp])
+const orphan = (await db.query('select paid_by, trip_id from public.budget_items where id = $1', [tmpItem])).rows[0]
+check('borrar al pagador deja paid_by en null y conserva el ítem', orphan.paid_by === null && orphan.trip_id === trip.id)
+await as('authenticated', A, 'delete from public.budget_items where id = $1', [tmpItem])
+
+g = await mget(tLucia)
+check('presupuesto oculto mientras no se publica', g.budget_published === false && g.budget === null)
+await as('authenticated', A, 'update public.trips set budget_published = true where id = $1', [trip.id])
+g = await mget(tLucia)
+check('presupuesto visible al publicar', g.budget_published === true && g.budget.currency === 'CLP' && g.budget.items.length === 1 && g.budget.items[0].member_ids.length === 2)
+check('los montos llegan como número', g.budget.items[0].actual_amount === 950000 && g.budget.items[0].actual_rate === 0.73 && g.budget.items[0].estimated_amount === 900000)
+check('incluye su id, los viajeros y los cambios, sin tokens', g.budget.me === mLucia && g.budget.members.length === 3 && g.budget.rates[0].currency === 'KRW' && !JSON.stringify(g.budget).includes(tJuan))
+
 console.log('\nInfo automática')
 check('sin place_info, info = null', (await mplaces(tPedro)).find(p => p.id === pTorre).info === null)
 await db.query(`insert into public.place_info (place_id, trip_id, history) values ($1,$2,'Torre icónica')`, [pTorre, trip.id])
