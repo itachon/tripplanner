@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { FormError, FormSubmitEvent } from '@nuxt/ui'
 
+definePageMeta({ layout: 'auth' })
 useHead({ title: 'Crear cuenta' })
 
 const { client, user } = useDb()
@@ -50,45 +51,42 @@ async function onSubmit(e: FormSubmitEvent<typeof state>) {
 </script>
 
 <template>
-  <div class="flex min-h-dvh items-center justify-center bg-muted/40 px-4 py-12">
-    <UCard class="w-full max-w-sm">
-      <div class="mb-6 text-center">
-        <UIcon name="i-lucide-plane" class="size-10 text-primary" />
-        <h1 class="mt-2 text-2xl font-bold">
-          Crear cuenta
-        </h1>
-        <p class="mt-1 text-sm text-muted">
-          Planifica viajes con tus amigos
-        </p>
-      </div>
-
-      <UForm :state="state" :validate="validate" class="space-y-4" @submit="onSubmit">
-        <UFormField label="Nombre" name="fullName">
-          <UInput v-model="state.fullName" autocomplete="name" class="w-full" />
-        </UFormField>
-        <UFormField label="Correo" name="email">
-          <UInput v-model="state.email" type="email" autocomplete="email" class="w-full" />
-        </UFormField>
-        <UFormField label="Contraseña" name="password">
-          <UInput v-model="state.password" type="password" autocomplete="new-password" class="w-full" />
-        </UFormField>
-        <UFormField label="Repite la contraseña" name="password2">
-          <UInput v-model="state.password2" type="password" autocomplete="new-password" class="w-full" />
-        </UFormField>
-
-        <UAlert v-if="errorText" color="error" variant="subtle" :description="errorText" />
-
-        <UButton type="submit" block :loading="loading" :disabled="!hydrated">
-          Crear cuenta
-        </UButton>
-      </UForm>
-
-      <p class="mt-6 text-center text-sm text-muted">
-        ¿Ya tienes cuenta?
-        <ULink to="/login" class="font-medium text-primary">
-          Ingresar
-        </ULink>
+  <UCard>
+    <div class="mb-6">
+      <h1 class="font-serif text-3xl font-semibold">
+        Crear cuenta
+      </h1>
+      <p class="mt-1 text-sm text-muted">
+        Planifica viajes con tus amigos
       </p>
-    </UCard>
-  </div>
+    </div>
+
+    <UForm :state="state" :validate="validate" class="space-y-4" @submit="onSubmit">
+      <UFormField label="Nombre" name="fullName">
+        <UInput v-model="state.fullName" autocomplete="name" class="w-full" />
+      </UFormField>
+      <UFormField label="Correo" name="email">
+        <UInput v-model="state.email" type="email" autocomplete="email" class="w-full" />
+      </UFormField>
+      <UFormField label="Contraseña" name="password">
+        <UInput v-model="state.password" type="password" autocomplete="new-password" class="w-full" />
+      </UFormField>
+      <UFormField label="Repite la contraseña" name="password2">
+        <UInput v-model="state.password2" type="password" autocomplete="new-password" class="w-full" />
+      </UFormField>
+
+      <UAlert v-if="errorText" color="error" variant="subtle" :description="errorText" />
+
+      <UButton type="submit" block :loading="loading" :disabled="!hydrated">
+        Crear cuenta
+      </UButton>
+    </UForm>
+
+    <p class="mt-6 text-center text-sm text-muted">
+      ¿Ya tienes cuenta?
+      <ULink to="/login" class="font-medium text-primary">
+        Ingresar
+      </ULink>
+    </p>
+  </UCard>
 </template>

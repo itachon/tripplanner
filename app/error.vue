@@ -7,10 +7,10 @@ const notFound = computed(() => props.error.statusCode === 404)
 
 <template>
   <UApp>
-    <div class="flex min-h-dvh items-center justify-center px-6">
+    <div class="flex min-h-dvh items-center justify-center bg-canvas px-6">
       <div class="max-w-sm text-center">
         <UIcon :name="notFound ? 'i-lucide-search-x' : 'i-lucide-triangle-alert'" class="size-12 text-muted" />
-        <h1 class="mt-4 text-xl font-semibold">
+        <h1 class="mt-4 font-serif text-2xl font-semibold">
           {{ notFound ? 'Página no encontrada' : 'Algo salió mal' }}
         </h1>
         <p class="mt-2 text-muted">
