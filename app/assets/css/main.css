@@ -1,2 +1,62 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
+
+/* Tema "editorial cálido". Diseño: docs/superpowers/specs/2026-10-13-rediseno-editorial-design.md */
+
+/* @nuxt/fonts descarga estas familias al verlas aquí */
+@theme {
+  --font-sans: 'Inter', sans-serif;
+  --font-serif: 'Fraunces', serif;
+}
+
+/* static: Nuxt UI necesita las 11 tonalidades aunque ninguna clase las use */
+@theme static {
+  --color-terracotta-50: #fbf4ef;
+  --color-terracotta-100: #f6e5d9;
+  --color-terracotta-200: #ecc9b1;
+  --color-terracotta-300: #e0a682;
+  --color-terracotta-400: #d38057;
+  --color-terracotta-500: #c4633a;
+  --color-terracotta-600: #b4532a;
+  --color-terracotta-700: #944224;
+  --color-terracotta-800: #783824;
+  --color-terracotta-900: #633121;
+  --color-terracotta-950: #35170f;
+
+  --color-sage-50: #f3f6f2;
+  --color-sage-100: #e3eae1;
+  --color-sage-200: #c8d6c5;
+  --color-sage-300: #a3b9a0;
+  --color-sage-400: #7d997a;
+  --color-sage-500: #5f7a61;
+  --color-sage-600: #4a614c;
+  --color-sage-700: #3c4e3e;
+  --color-sage-800: #323f33;
+  --color-sage-900: #2a352b;
+  --color-sage-950: #151c16;
+}
+
+/* bg-canvas: fondo de página. Las superficies (tarjetas, campos, modales) siguen en --ui-bg */
+@theme inline {
+  --color-canvas: var(--app-canvas);
+}
+
+/* Las variables de Nuxt UI viven en @layer theme: estas reglas sin capa las pisan,
+   por eso .dark repite los valores del modo oscuro. */
+:root {
+  --ui-radius: 0.125rem;
+  /* paso 600: el texto blanco de los botones cumple contraste AA */
+  --ui-primary: var(--ui-color-primary-600);
+  --ui-success: var(--ui-color-success-600);
+  --app-canvas: #faf6ef;
+}
+
+.dark {
+  --ui-primary: var(--ui-color-primary-400);
+  --ui-success: var(--ui-color-success-400);
+  --app-canvas: var(--ui-color-neutral-950);
+}
+
+body {
+  background-color: var(--app-canvas);
+}

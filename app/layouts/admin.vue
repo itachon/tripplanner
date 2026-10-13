@@ -16,7 +16,7 @@ const userMenu = computed(() => [
 </script>
 
 <template>
-  <div class="min-h-dvh bg-muted/40">
+  <div class="min-h-dvh bg-canvas">
     <header class="sticky top-0 z-40 border-b border-default bg-default/90 backdrop-blur">
       <UContainer class="flex h-14 items-center justify-between gap-4">
         <NuxtLink to="/admin" class="flex items-center gap-2 font-semibold">

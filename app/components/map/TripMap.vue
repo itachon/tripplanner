@@ -33,7 +33,8 @@ defineSlots<{
   card?: (props: { marker: MapMarker, pinned: boolean, close: () => void }) => unknown
 }>()
 
-const ROUTE_COLOR = '#0284c7'
+// terracotta-600 (no se puede usar una clase: Mapbox pinta la línea en el canvas)
+const ROUTE_COLOR = '#b4532a'
 const CARD_W = 300
 
 const token = useRuntimeConfig().public.mapboxToken as string
@@ -195,7 +196,8 @@ function syncPendingPin() {
     pendingMarker = null
     return
   }
-  if (!pendingMarker) pendingMarker = new mapboxgl.Marker({ color: '#f59e0b' })
+  // terracotta-400
+  if (!pendingMarker) pendingMarker = new mapboxgl.Marker({ color: '#d38057' })
   pendingMarker.setLngLat([p.longitude, p.latitude]).addTo(map.value)
 }
 
