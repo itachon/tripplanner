@@ -5,7 +5,8 @@ export interface MapMarker {
   longitude: number
   /** texto dentro del pin (ej. número de orden) */
   label?: string
-  tone?: 'primary' | 'success' | 'neutral' | 'warning'
+  /** off: lugar guardado pero fuera de la votación (celeste y más chico) */
+  tone?: 'primary' | 'success' | 'neutral' | 'warning' | 'off'
   dimmed?: boolean
   title: string
 }

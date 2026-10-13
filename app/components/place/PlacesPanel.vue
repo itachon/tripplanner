@@ -86,7 +86,7 @@ const markers = computed<MapMarker[]>(() => places.value.map(p => ({
   latitude: p.latitude,
   longitude: p.longitude,
   label: String(numberOf.value.get(p.id)),
-  tone: p.votable ? 'primary' : 'neutral',
+  tone: p.votable ? 'primary' : 'off',
   title: p.name,
 })))
 
@@ -156,11 +156,19 @@ function edit(p: Place) {
   formOpen.value = true
 }
 
+// Quitar de la votación no borra el lugar ni sus votos: sigue guardado y se puede volver a poner
+const toggling = ref<string | null>(null)
 async function toggleVotable(p: Place) {
+  if (toggling.value) return
+  toggling.value = p.id
   const { error } = await client.from('places').update({ votable: !p.votable }).eq('id', p.id)
-  if (error) return toast.add({ color: 'error', title: 'No se pudo cambiar', description: errorMessage(error) })
+  if (error) {
+    toggling.value = null
+    return toast.add({ color: 'error', title: 'No se pudo cambiar', description: errorMessage(error) })
+  }
   toast.add({ title: p.votable ? 'Quitado de la votación' : 'Agregado a la votación' })
   await refresh()
+  toggling.value = null
 }
 
 async function move(p: Place, dir: -1 | 1) {
@@ -260,7 +268,17 @@ function showDetail(p: Place) {
                   <UIcon name="i-lucide-heart" class="size-3.5 text-primary" />
                   {{ votesOf(marker.id) }} {{ votesOf(marker.id) === 1 ? 'voto' : 'votos' }}
                 </span>
-                <div v-if="pinned" class="flex gap-1">
+                <div v-if="pinned" class="flex flex-wrap justify-end gap-1">
+                  <UButton
+                    size="xs"
+                    :color="placeById.get(marker.id)!.votable ? 'neutral' : 'primary'"
+                    :variant="placeById.get(marker.id)!.votable ? 'ghost' : 'soft'"
+                    :icon="placeById.get(marker.id)!.votable ? 'i-lucide-circle-minus' : 'i-lucide-circle-plus'"
+                    :loading="toggling === marker.id"
+                    @click="toggleVotable(placeById.get(marker.id)!)"
+                  >
+                    {{ placeById.get(marker.id)!.votable ? 'Quitar de la votación' : 'Poner en votación' }}
+                  </UButton>
                   <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-file-text" @click="showDetail(placeById.get(marker.id)!)">
                     Ficha
                   </UButton>
@@ -320,7 +338,7 @@ function showDetail(p: Place) {
           >
             <span
               class="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
-              :class="p.votable ? 'bg-primary text-inverted' : 'bg-neutral-600 text-white'"
+              :class="p.votable ? 'bg-primary text-inverted' : 'bg-sky-300 text-sky-950'"
             >{{ numberOf.get(p.id) }}</span>
             <div class="min-w-0 flex-1">
               <p class="truncate font-medium leading-snug">
@@ -350,9 +368,32 @@ function showDetail(p: Place) {
                 Votaron: {{ votersByPlace.get(p.id)!.map(m => m.name).join(', ') }}
               </p>
             </div>
-            <UDropdownMenu :items="menu(p)" :content="{ align: 'end' }">
-              <UButton icon="i-lucide-ellipsis-vertical" color="neutral" variant="ghost" size="sm" aria-label="Acciones" @click.stop />
-            </UDropdownMenu>
+            <div class="flex shrink-0 items-center gap-0.5" @click.stop>
+              <UButton
+                v-if="!p.votable"
+                size="xs"
+                variant="soft"
+                icon="i-lucide-circle-plus"
+                :loading="toggling === p.id"
+                @click="toggleVotable(p)"
+              >
+                Poner en votación
+              </UButton>
+              <UTooltip v-else text="Quitar de la votación">
+                <UButton
+                  size="sm"
+                  color="neutral"
+                  variant="ghost"
+                  icon="i-lucide-circle-minus"
+                  aria-label="Quitar de la votación"
+                  :loading="toggling === p.id"
+                  @click="toggleVotable(p)"
+                />
+              </UTooltip>
+              <UDropdownMenu :items="menu(p)" :content="{ align: 'end' }">
+                <UButton icon="i-lucide-ellipsis-vertical" color="neutral" variant="ghost" size="sm" aria-label="Acciones" />
+              </UDropdownMenu>
+            </div>
           </li>
         </ul>
       </template>

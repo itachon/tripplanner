@@ -68,6 +68,7 @@ const TONES: Record<NonNullable<MapMarker['tone']>, string> = {
   success: 'bg-success text-inverted',
   neutral: 'bg-neutral-600 text-white',
   warning: 'bg-warning text-white',
+  off: 'bg-sky-300 text-sky-950',
 }
 
 // El estilo va en un círculo interior: el <button> exterior es de Mapbox, que
@@ -77,7 +78,8 @@ function markerClass(m: MapMarker) {
   const active = m.id === activeId.value || m.id === props.highlightId
   return [
     'trip-marker flex items-center justify-center rounded-full border-2 border-white shadow-md',
-    'size-8 text-xs font-bold transition-[scale,box-shadow] duration-150',
+    'font-bold transition-[scale,box-shadow] duration-150',
+    m.tone === 'off' ? 'size-6 text-[10px]' : 'size-8 text-xs',
     TONES[m.tone ?? 'primary'],
     m.dimmed && !active ? 'opacity-55' : '',
     active ? 'scale-125 ring-4 ring-primary/35' : 'group-hover:scale-110',
