@@ -56,6 +56,9 @@ const svc = (sql, params) => as('service_role', null, sql, params)
 const svcErr = (sql, params) => err('service_role', null, sql, params)
 const mget = async (t) => (await svc('select public.member_get_trip($1) r', [t])).rows[0].r
 const mplaces = async (t) => (await svc('select public.member_list_places($1) r', [t])).rows[0].r
+const addPlace = async (uid, tripId, fields, opts = {}) => (await as('authenticated', uid,
+  'select public.trip_add_place($1, null, $2::jsonb, $3, $4) r',
+  [tripId, JSON.stringify(fields), opts.votable ?? true, opts.description ?? null])).rows[0].r
 
 
 const A = '11111111-1111-1111-1111-111111111111'
@@ -95,13 +98,20 @@ check('tokens de 32 hex', mem.every(m => /^[0-9a-f]{32}$/.test(m.token)))
 check('admin no cambia el estado de un miembro', /permission denied/.test(await err('authenticated', A, `update public.members set status='accepted' where trip_id=$1`, [trip.id])))
 check('C no crea miembros en viaje ajeno', /row-level security/.test(await err('authenticated', C, `insert into public.members (trip_id, name) values ($1,'x')`, [trip.id])))
 
-const places = (await as('authenticated', B, `insert into public.places (trip_id, name, latitude, longitude, votable, sort_order) values
-  ($1,'Gyeongbokgung', 37.5796, 126.9770, true, 1),
-  ($1,'N Seoul Tower', 37.5512, 126.9882, true, 2),
-  ($1,'Hotel Myeongdong', 37.5636, 126.9850, false, 3) returning id`, [trip.id])).rows.map(r => r.id)
-const [pPalacio, pTorre, pHotel] = places
-check('coordenadas fuera de rango rechazadas', /places_latitude_check/.test(await err('authenticated', A, `insert into public.places (trip_id, name, latitude, longitude) values ($1,'x', 95, 0)`, [trip.id])))
-check('admin no puede escribir ai_info directo', /permission denied/.test(await err('authenticated', A, `update public.places set ai_info='{}' where id=$1`, [pPalacio])))
+const added = []
+for (const [name, latitude, longitude, votable] of [
+  ['Gyeongbokgung', 37.5796, 126.9770, true],
+  ['N Seoul Tower', 37.5512, 126.9882, true],
+  ['Hotel Myeongdong', 37.5636, 126.9850, false],
+]) added.push(await addPlace(B, trip.id, { name, latitude, longitude }, { votable }))
+const [pPalacio, pTorre, pHotel] = added.map(r => r.place_id)
+const [, cTorre] = added.map(r => r.catalog_place_id)
+check('trip_add_place crea el lugar y lo marca como nuevo', added.every(r => r.created === true))
+check('los lugares quedan en orden de llegada', (await db.query('select sort_order from public.places where trip_id = $1 order by sort_order', [trip.id])).rows.map(r => r.sort_order).join() === '1,2,3')
+check('coordenadas fuera de rango rechazadas', /catalog_places_latitude_check/.test(await err('authenticated', A, 'select public.trip_add_place($1, null, $2::jsonb)', [trip.id, JSON.stringify({ name: 'x', latitude: 95, longitude: 0 })])))
+check('admin no inserta lugares directo', /permission denied/.test(await err('authenticated', A, 'insert into public.places (trip_id, catalog_place_id) values ($1,$2)', [trip.id, cTorre])))
+check('admin no lee la tabla del catálogo directo', /permission denied/.test(await err('authenticated', A, 'select * from public.catalog_places')))
+check('admin solo cambia votación, orden y nota del lugar', /permission denied/.test(await err('authenticated', A, 'update public.places set catalog_place_id = $2 where id = $1', [pPalacio, cTorre])))
 
 await as('authenticated', A, `insert into public.itinerary_stops (trip_id, place_id, day, start_time, end_time) values
   ($1, $2, '2027-04-11', '09:00', '12:00'), ($1, $3, '2027-04-10', '15:00', null)`, [trip.id, pPalacio, pHotel])
@@ -112,7 +122,7 @@ check('hora de término antes del inicio rechazada', /stop_times_valid/.test(awa
 check('acortar el viaje dejando paradas fuera falla', /stops_outside_new_dates/.test(await err('authenticated', A, `update public.trips set end_date='2027-04-10' where id=$1`, [trip.id])))
 
 const otherTrip = (await newTrip(C)).rows[0]
-const otherPlace = (await as('authenticated', C, `insert into public.places (trip_id, name, latitude, longitude) values ($1,'Busan', 35.1, 129.0) returning id`, [otherTrip.id])).rows[0].id
+const otherPlace = (await addPlace(C, otherTrip.id, { name: 'Busan', latitude: 35.1, longitude: 129.0 })).place_id
 check('parada con lugar de otro viaje rechazada', /foreign key|violates/.test(await err('authenticated', A, `insert into public.itinerary_stops (trip_id, place_id, day) values ($1,$2,'2027-04-11')`, [trip.id, otherPlace]) ?? ''))
 
 console.log('\nAcceso de viajeros')
@@ -241,8 +251,10 @@ await as('authenticated', A, 'delete from public.budget_items where id = $1', [t
 
 console.log('\nInfo automática')
 check('sin place_info, info = null', (await mplaces(tPedro)).find(p => p.id === pTorre).info === null)
-await db.query(`insert into public.place_info (place_id, trip_id, history) values ($1,$2,'Torre icónica')`, [pTorre, trip.id])
+await db.query(`insert into public.place_info (catalog_place_id, history) values ($1,'Torre icónica')`, [cTorre])
 check('con place_info, se muestra', (await mplaces(tPedro)).find(p => p.id === pTorre).info.history === 'Torre icónica')
+check('el viajero recibe los mismos campos de siempre', Object.keys((await mplaces(tPedro))[0]).sort().join() === 'address,category,description,id,in_itinerary,info,latitude,longitude,name,photo_path,votable,vote_count,voted')
+check('la parada sin título toma el nombre del lugar', (await mget(tPedro)).itinerary.some(s => s.title === 'Gyeongbokgung' || s.title === 'N Seoul Tower'))
 
 console.log('\nFecha límite')
 await db.query(`update public.trips set rsvp_deadline = now() - interval '1 minute' where id = $1`, [trip.id])
