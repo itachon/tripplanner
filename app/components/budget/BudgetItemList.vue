@@ -1,6 +1,6 @@
 <script setup lang="ts" generic="T extends BudgetItemView">
 import {
-  BUDGET_CATEGORIES, BUDGET_CATEGORY_META, actualBase, estimatedBase, estimatedTotal, formatMoney, roundMoney,
+  BUDGET_CATEGORIES, BUDGET_CATEGORY_META, actualBase, estimatedBase, estimatedTotal, formatMoney, itemShare, roundMoney,
   type BudgetItemView, type Rates,
 } from '~~/shared/utils/budget'
 
@@ -42,10 +42,19 @@ function actualHint(i: T) {
   return v == null ? 'Sin tipo de cambio' : `= ${formatMoney(v, props.base)}`
 }
 
+/** Entre cuántos se reparte y cuánto le toca a cada uno (de lo gastado si ya se pagó; si no, del estimado) */
 function people(i: T) {
   const n = i.member_ids.length
   if (!n) return 'Sin participantes'
-  return n === 1 ? (props.memberNames[i.member_ids[0]!] ?? '1 persona') : `Entre ${n}`
+  if (n === 1) return props.memberNames[i.member_ids[0]!] ?? '1 persona'
+  const total = i.actual_amount ?? estimatedTotal(i)
+  return total == null ? `Entre ${n}` : `Entre ${n} · ${formatMoney(roundMoney(total / n, i.currency), i.currency)} c/u`
+}
+
+/** Lo que le toca al viajero que mira, en la moneda del ítem */
+function myShare(i: T) {
+  const share = props.meId ? itemShare(i, props.meId) : null
+  return share == null ? 'Participas' : `Tu parte ${formatMoney(share, i.currency)}`
 }
 </script>
 
@@ -110,7 +119,7 @@ function people(i: T) {
                 {{ people(i) }}
               </UBadge>
               <UBadge v-if="meId && i.member_ids.includes(meId)" color="primary" variant="subtle" size="sm">
-                Participas
+                {{ myShare(i) }}
               </UBadge>
             </div>
           </div>

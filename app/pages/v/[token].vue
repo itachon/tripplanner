@@ -2,7 +2,7 @@
 import type { MapMarker } from '~~/shared/types/map'
 import type { MemberPlace, MemberTripView } from '~~/shared/types/trip'
 import type { TimelineItem } from '~/components/itinerary/ItineraryTimeline.vue'
-import { balances, formatMoney, settle, summarize, type Rates } from '~~/shared/utils/budget'
+import { balances, expectedShares, formatMoney, settle, summarize, type Rates } from '~~/shared/utils/budget'
 
 definePageMeta({ layout: false })
 
@@ -224,6 +224,8 @@ const bSummary = computed(() => budget.value ? summarize(budget.value.items, bud
 const bBalances = computed(() => budget.value ? balances(budget.value.items, budget.value.currency, budget.value.members.map(m => m.id)) : [])
 const bTransfers = computed(() => budget.value ? settle(bBalances.value, budget.value.currency) : [])
 const myBalance = computed(() => bBalances.value.find(b => b.member_id === budget.value?.me) ?? null)
+const bShares = computed(() => budget.value ? expectedShares(budget.value.items, budget.value.currency, bRates.value, budget.value.members.map(m => m.id)) : [])
+const myShare = computed(() => bShares.value.find(s => s.member_id === budget.value?.me)?.share ?? 0)
 </script>
 
 <template>
@@ -578,10 +580,10 @@ const myBalance = computed(() => bBalances.value.find(b => b.member_id === budge
                 <div class="mb-4 grid gap-3 sm:grid-cols-3">
                   <UCard :ui="{ body: 'p-5 sm:p-6' }">
                     <p class="text-xs font-medium uppercase tracking-wide text-muted">
-                      Costo estimado por persona
+                      Tu parte estimada
                     </p>
                     <p class="mt-2 font-serif text-3xl font-semibold">
-                      {{ formatMoney(bSummary.perPerson, budget.currency) }}
+                      {{ formatMoney(myShare, budget.currency) }}
                     </p>
                     <p class="mt-1 text-xs text-muted">
                       Total del viaje {{ formatMoney(bSummary.estimated, budget.currency) }}
@@ -645,6 +647,7 @@ const myBalance = computed(() => bBalances.value.find(b => b.member_id === budge
                   <BudgetBalances
                     :balances="bBalances"
                     :transfers="bTransfers"
+                    :shares="bShares"
                     :base="budget.currency"
                     :member-names="bNames"
                     :me-id="budget.me"

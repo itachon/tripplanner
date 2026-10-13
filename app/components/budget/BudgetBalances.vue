@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { formatMoney, type MemberBalance, type Transfer } from '~~/shared/utils/budget'
+import { formatMoney, type MemberBalance, type MemberShare, type Transfer } from '~~/shared/utils/budget'
 
 // Cuentas del grupo: quién le paga a quién y el saldo de cada viajero.
 const props = defineProps<{
   balances: MemberBalance[]
   transfers: Transfer[]
+  /** lo que le toca a cada viajero del presupuesto completo, incluido lo que aún no se paga */
+  shares: MemberShare[]
   /** moneda principal del viaje */
   base: string
   memberNames: Record<string, string>
@@ -13,7 +15,9 @@ const props = defineProps<{
 }>()
 
 const name = (id: string) => props.memberNames[id] ?? 'Viajero borrado'
-const active = computed(() => props.balances.filter(b => b.paid || b.owed))
+const shareOf = computed(() => new Map(props.shares.map(s => [s.member_id, s.share])))
+const hasPaid = computed(() => props.balances.some(b => b.paid || b.owed))
+const active = computed(() => props.balances.filter(b => b.paid || b.owed || shareOf.value.get(b.member_id)))
 </script>
 
 <template>
@@ -23,7 +27,10 @@ const active = computed(() => props.balances.filter(b => b.paid || b.owed))
     </p>
 
     <template v-else>
-      <p v-if="!transfers.length" class="flex items-center gap-2 text-sm text-success">
+      <p v-if="!hasPaid" class="text-sm text-muted">
+        Todavía no hay gastos pagados. Esta es la parte estimada de cada viajero.
+      </p>
+      <p v-else-if="!transfers.length" class="flex items-center gap-2 text-sm text-success">
         <UIcon name="i-lucide-circle-check" class="size-4" />
         Están a mano: nadie le debe a nadie.
       </p>
@@ -49,6 +56,9 @@ const active = computed(() => props.balances.filter(b => b.paid || b.owed))
                 Viajero
               </th>
               <th class="px-3 py-1.5 text-right font-medium">
+                Parte estimada
+              </th>
+              <th class="px-3 py-1.5 text-right font-medium">
                 Pagó
               </th>
               <th class="px-3 py-1.5 text-right font-medium">
@@ -63,6 +73,9 @@ const active = computed(() => props.balances.filter(b => b.paid || b.owed))
             <tr v-for="b in active" :key="b.member_id" :class="{ 'font-semibold': meId === b.member_id }">
               <td class="py-1.5 pr-3">
                 {{ name(b.member_id) }}
+              </td>
+              <td class="px-3 py-1.5 text-right">
+                {{ formatMoney(shareOf.get(b.member_id) ?? 0, base) }}
               </td>
               <td class="px-3 py-1.5 text-right">
                 {{ formatMoney(b.paid, base) }}

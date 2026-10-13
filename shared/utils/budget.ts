@@ -70,6 +70,7 @@ export interface BudgetSummary {
 }
 
 export interface MemberBalance { member_id: string, paid: number, owed: number, balance: number }
+export interface MemberShare { member_id: string, share: number }
 export interface Transfer { from: string, to: string, amount: number }
 
 /** Decimales que usa la moneda: 0 para CLP, KRW, JPY; 2 para la mayoría */
@@ -200,6 +201,34 @@ export function balances(items: BudgetItemLike[], base: string, memberIds: strin
     const o = owed.get(id) ?? 0
     return { member_id: id, paid: p / f, owed: o / f, balance: (p - o) / f }
   })
+}
+
+/**
+ * Parte de un viajero en un ítem, en la moneda del ítem: de lo gastado si ya
+ * se pagó; si no, del estimado (con extras). null si no participa o no hay monto.
+ */
+export function itemShare(item: BudgetItemLike, memberId: string): number | null {
+  const total = item.actual_amount ?? estimatedTotal(item)
+  if (total == null) return null
+  return splitEqually(total, item.member_ids, item.currency).get(memberId) ?? null
+}
+
+/**
+ * Por viajero: cuánto le toca del presupuesto completo, en la moneda principal.
+ * A diferencia de `balances`, cuenta también lo que todavía no se paga: cada
+ * ítem aporta lo gastado si ya se pagó y, si no, su estimado.
+ */
+export function expectedShares(items: BudgetItemLike[], base: string, rates: Rates, memberIds: string[]): MemberShare[] {
+  const f = factor(base)
+  const owed = new Map<string, number>()
+  for (const it of items) {
+    if (!it.member_ids.length) continue
+    const total = it.actual_amount != null ? actualBase(it, base) : estimatedBase(it, base, rates)
+    if (total == null) continue
+    for (const [id, part] of splitEqually(total, it.member_ids, base)) owed.set(id, (owed.get(id) ?? 0) + Math.round(part * f))
+  }
+  const ids = [...new Set([...memberIds, ...owed.keys()])]
+  return ids.map(id => ({ member_id: id, share: (owed.get(id) ?? 0) / f }))
 }
 
 /** Transferencias para saldar: el que más debe le paga al que más tiene a favor */

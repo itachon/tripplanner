@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import type { DropdownMenuItem } from '@nuxt/ui'
 import type { BudgetItem } from '~/composables/useTripAdmin'
-import { BUDGET_CURRENCIES, currencyLabel, formatMoney } from '~~/shared/utils/budget'
+import { BUDGET_CURRENCIES, currencyLabel, expectedShares, formatMoney } from '~~/shared/utils/budget'
 
 const {
   trip, members, refresh, budgetItems, baseCurrency, rates, exchangeRates,
   budgetSummary, budgetBalances, budgetTransfers, budgetPeople,
 } = useTripCtx()
 const { client } = useDb()
+const budgetShares = computed(() => expectedShares(budgetItems.value, baseCurrency.value, rates.value, members.value.map(m => m.id)))
 const toast = useToast()
 
 const formOpen = ref(false)
@@ -216,7 +217,7 @@ onMounted(() => {
             Cuentas
           </h3>
         </template>
-        <BudgetBalances :balances="budgetBalances" :transfers="budgetTransfers" :base="baseCurrency" :member-names="memberNames" />
+        <BudgetBalances :balances="budgetBalances" :transfers="budgetTransfers" :shares="budgetShares" :base="baseCurrency" :member-names="memberNames" />
       </UCard>
 
       <UCard>
