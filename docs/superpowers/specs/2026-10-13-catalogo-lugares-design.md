@@ -89,9 +89,11 @@ Función `catalog_place_editable(id)`: verdadera si el usuario es `created_by`, 
 
 `catalog_places`:
 
+El navegador no tiene ningún permiso directo sobre la tabla: lee y escribe solo a través de funciones de la base, que aplican estas reglas.
+
 - **Leer:** el lugar es público, o el usuario lo creó, o el usuario administra un viaje que lo usa.
 - **Crear:** solo a través de `trip_add_place` (ver abajo).
-- **Editar** (`name`, `address`, `latitude`, `longitude`, `category`, `photo_path`, `is_public`): solo si `catalog_place_editable`. `mapbox_id`, `created_by` y `origin_trip_id` no se pueden cambiar.
+- **Editar** (`name`, `address`, `category`, `photo_path`, `is_public`): solo si `catalog_place_editable`, a través de `catalog_place_update`. Las coordenadas, `mapbox_id`, `created_by` y `origin_trip_id` no se pueden cambiar (el formulario actual tampoco deja mover un lugar).
 - **Volver privado** un lugar público: solo si ningún viaje distinto del de origen lo usa.
 - **Borrar:** nadie directamente. Un lugar privado se borra solo cuando se quita de su último viaje.
 
@@ -123,7 +125,7 @@ Elegir uno del primer grupo lo agrega de inmediato con `trip_add_place`, en vota
 
 ### Marcar en el mapa
 
-Después de marcar el punto y antes del formulario, si hay lugares visibles del catálogo a 100 m o menos (y que el viaje no tenga), se muestra el paso "¿Es alguno de estos?" con esa lista y el botón "No, crear uno nuevo". La distancia se calcula con una función pura en `app/utils/`, sobre una consulta acotada por latitud y longitud; no se instala PostGIS.
+Después de marcar el punto y antes del formulario, si hay lugares visibles del catálogo a 100 m o menos (y que el viaje no tenga), se muestra el paso "¿Es alguno de estos?" con esa lista y el botón "No, crear uno nuevo". La distancia la calcula una función de la base (`catalog_near`) con trigonometría, sobre un recorte previo por latitud y longitud; no se instala PostGIS.
 
 ### Formulario (`PlaceFormModal.vue`)
 
@@ -182,6 +184,6 @@ Hoy son 10 lugares en 2 viajes de un mismo organizador; no hay identificadores r
   - `trip_add_place` reutiliza por `mapbox_id`, no duplica el vínculo y rechaza a quien no administra el viaje.
   - Un lugar privado se borra al quitarlo de su último viaje; uno público no.
   - Las funciones del viajero devuelven la misma forma que antes de la migración.
-- `npm test`: función de distancia y filtro de 100 m; validación de identificador real de Mapbox.
+- `npm test`: validación de identificador real de Mapbox. La distancia y el filtro de 100 m se prueban en `npm run test:db`, porque viven en la base.
 - `npm run typecheck` y `npm run build`.
 - Revisión manual con dos cuentas de organizador: crear un lugar con una, encontrarlo y agregarlo con la otra, comprobar que la segunda no puede editarlo, y que un lugar privado no aparece en su búsqueda.
