@@ -4,40 +4,28 @@ import type { Tables } from '~~/shared/types/database.types'
 definePageMeta({ layout: 'admin' })
 useHead({ title: 'Mis viajes' })
 
-type TripRow = Tables<'trips'> & {
-  members: { count: number }[]
-  places: { count: number }[]
-  cover_places: { photo_path: string | null }[]
-  cover_info: { photo_url: string | null }[]
-}
+type TripRow = Tables<'trips'> & { members: { count: number }[], places: { count: number }[] }
 
 const { client, userId } = useDb()
 const photoUrl = usePlacePhotoUrl()
+const catalog = useCatalog()
 const createOpen = ref(false)
 
-const { data: trips, status } = await useAsyncData('admin-trips', async () => {
-  const { data, error } = await client
-    .from('trips')
-    .select('*, members(count), places(count), cover_places:places(photo_path), cover_info:place_info(photo_url)')
-    // Por viaje, una sola fila de cada uno: el primer lugar con foto subida y una foto de ficha
-    .not('cover_places.photo_path', 'is', null)
-    .order('sort_order', { referencedTable: 'cover_places' })
-    .order('created_at', { referencedTable: 'cover_places' })
-    .limit(1, { referencedTable: 'cover_places' })
-    .not('cover_info.photo_url', 'is', null)
-    .order('created_at', { referencedTable: 'cover_info' })
-    .limit(1, { referencedTable: 'cover_info' })
-    .order('start_date', { ascending: true })
-  if (error) throw error
-  return data as unknown as TripRow[]
+const { data, status } = await useAsyncData('admin-trips', async () => {
+  const [tripsRes, covers] = await Promise.all([
+    client.from('trips').select('*, members(count), places(count)').order('start_date', { ascending: true }),
+    catalog.covers(),
+  ])
+  if (tripsRes.error) throw tripsRes.error
+  return { trips: tripsRes.data as unknown as TripRow[], covers }
 })
+const trips = computed(() => data.value?.trips ?? null)
 
 /** Portada de un viaje: la primera foto subida, en el orden del organizador; si no hay, una de las fichas */
+const coverByTrip = computed(() => new Map((data.value?.covers ?? []).map(c => [c.trip_id, c])))
 function coverOf(t: TripRow) {
-  return coverPhoto([
-    { photo_url: photoUrl(t.cover_places[0]?.photo_path) },
-    { photo_url: t.cover_info[0]?.photo_url },
-  ])
+  const c = coverByTrip.value.get(t.id)
+  return coverPhoto([{ photo_url: photoUrl(c?.photo_path) }, { photo_url: c?.info_photo_url }])
 }
 
 const upcoming = computed(() => (trips.value ?? []).filter(t => todayIn(t.time_zone) <= t.end_date))

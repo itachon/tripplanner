@@ -17,20 +17,24 @@ export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id') ?? ''
   if (!UUID_RE.test(id)) throw createError({ statusCode: 404, message: 'Lugar no encontrado.' })
 
-  // Se lee con el cliente del usuario: RLS decide si tiene acceso al lugar.
-  const userClient = await serverSupabaseClient<Database>(event)
-  const { data: place } = await userClient
-    .from('places')
-    .select('id, name, trip_id, mapbox_id, latitude, longitude')
-    .eq('id', id)
+  // El vínculo se lee con el cliente del usuario: RLS decide si administra ese viaje.
+  // Las columnas nuevas no están en los tipos generados hasta regenerarlos.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userDb = (await serverSupabaseClient<Database>(event)) as any
+  const { data: link } = await userDb.from('places').select('id, catalog_place_id').eq('id', id).maybeSingle()
+  if (!link) throw createError({ statusCode: 404, message: 'Lugar no encontrado.' })
+
+  // Los datos del lugar y su ficha son del catálogo: se leen con el rol de servicio.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin = serverSupabaseServiceRole<Database>(event) as any
+  const { data: place } = await admin
+    .from('catalog_places')
+    .select('id, name, mapbox_id, latitude, longitude')
+    .eq('id', link.catalog_place_id)
     .maybeSingle()
   if (!place) throw createError({ statusCode: 404, message: 'Lugar no encontrado.' })
 
-  const { data: cached } = await userClient
-    .from('place_info')
-    .select('*')
-    .eq('place_id', id)
-    .maybeSingle()
+  const { data: cached } = await admin.from('place_info').select('*').eq('catalog_place_id', place.id).maybeSingle()
   // ?force=1 (búsqueda manual) ignora la caché y vuelve a consultar las fuentes.
   const force = !!getQuery(event).force
   if (!force && cached && Date.now() - new Date(cached.updated_at).getTime() < CACHE_DAYS * 86_400_000) {
@@ -40,8 +44,7 @@ export default defineEventHandler(async (event) => {
   const result = await enrichPlace({ name: place.name, latitude: place.latitude, longitude: place.longitude })
 
   const row = {
-    place_id: place.id,
-    trip_id: place.trip_id,
+    catalog_place_id: place.id,
     mapbox_id: place.mapbox_id,
     history: result.history,
     history_source: result.historySource,
@@ -55,7 +58,6 @@ export default defineEventHandler(async (event) => {
     updated_at: new Date().toISOString(),
   }
 
-  const admin = serverSupabaseServiceRole<Database>(event)
   const { data, error } = await admin.from('place_info').upsert(row).select('*').single()
   if (error) {
     console.error('[place-enrich]', error)

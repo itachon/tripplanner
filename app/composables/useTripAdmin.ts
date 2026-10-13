@@ -1,11 +1,15 @@
 import type { InjectionKey } from 'vue'
 import type { Database } from '~~/shared/types/database.types'
+import type { CatalogPlace } from '~~/shared/types/catalog'
 import { balances, settle, summarize, type BudgetExtra, type Rates } from '~~/shared/utils/budget'
 
 export type Trip = Database['public']['Tables']['trips']['Row']
 export type Member = Database['public']['Tables']['members']['Row']
-export type Place = Database['public']['Tables']['places']['Row']
-export type PlaceInfoRow = Database['public']['Tables']['place_info']['Row']
+/** Vínculo viaje ↔ lugar: lo propio de este viaje */
+export type PlaceLink = Pick<Database['public']['Tables']['places']['Row'], 'id' | 'trip_id' | 'votable' | 'sort_order' | 'description' | 'created_at' | 'updated_at'> & { catalog_place_id: string }
+/** Lugar de un viaje con los datos del catálogo aplanados. `id` es el del vínculo. */
+export type Place = Omit<CatalogPlace, 'id'> & PlaceLink
+export type PlaceInfoRow = Omit<Database['public']['Tables']['place_info']['Row'], 'place_id' | 'trip_id'> & { catalog_place_id: string }
 export type Stop = Database['public']['Tables']['itinerary_stops']['Row']
 export type Vote = Database['public']['Tables']['votes']['Row']
 export type BudgetItemRow = Database['public']['Tables']['budget_items']['Row']
@@ -27,31 +31,39 @@ export interface StopDraft { stop?: Stop | null, placeId?: string | null, day?: 
  */
 export async function useTripAdmin(tripId: string) {
   const { client, userId } = useDb()
+  const catalog = useCatalog()
 
   const { data, error, refresh, status } = await useAsyncData(`trip-admin-${tripId}`, async () => {
-    const [trip, members, places, stops, votes, admins, placeInfo, budgetItems, budgetShares, exchangeRates] = await Promise.all([
+    const [trip, members, places, stops, votes, admins, budgetItems, budgetShares, exchangeRates] = await Promise.all([
       client.from('trips').select('*, owner:profiles!trips_owner_id_fkey(email, full_name)').eq('id', tripId).maybeSingle(),
       client.from('members').select('*').eq('trip_id', tripId).order('created_at'),
-      client.from('places').select('*').eq('trip_id', tripId).order('sort_order').order('created_at'),
+      client.from('places').select('id, trip_id, catalog_place_id, votable, sort_order, description, created_at, updated_at').eq('trip_id', tripId).order('sort_order').order('created_at'),
       client.from('itinerary_stops').select('*').eq('trip_id', tripId).order('day').order('start_time', { nullsFirst: false }).order('sort_order').order('created_at'),
       client.from('votes').select('*').eq('trip_id', tripId),
       client.from('trip_admins').select('user_id, created_at, profile:profiles!trip_admins_user_id_fkey(email, full_name)').eq('trip_id', tripId).order('created_at'),
-      client.from('place_info').select('*').eq('trip_id', tripId),
       client.from('budget_items').select('*').eq('trip_id', tripId).order('sort_order').order('created_at'),
       client.from('budget_item_shares').select('item_id, member_id').eq('trip_id', tripId),
       client.from('trip_exchange_rates').select('*').eq('trip_id', tripId).order('currency'),
     ])
-    for (const r of [trip, members, places, stops, votes, admins, placeInfo, budgetItems, budgetShares, exchangeRates]) {
+    for (const r of [trip, members, places, stops, votes, admins, budgetItems, budgetShares, exchangeRates]) {
       if (r.error) throw r.error
     }
+    // Los datos del lugar viven en el catálogo: se traen aparte y se aplanan sobre el vínculo
+    const links = (places.data ?? []) as unknown as PlaceLink[]
+    const ids = links.map(l => l.catalog_place_id)
+    const [catalogRows, infoRows] = await Promise.all([catalog.byIds(ids), catalog.infoByIds(ids)])
+    const byCatalogId = new Map(catalogRows.map(c => [c.id, c]))
     return {
       trip: trip.data as unknown as (Trip & { owner: OwnerProfile | null }) | null,
       members: (members.data ?? []) as Member[],
-      places: (places.data ?? []) as unknown as Place[],
+      places: links.flatMap((l): Place[] => {
+        const c = byCatalogId.get(l.catalog_place_id)
+        return c ? [{ ...c, ...l }] : []
+      }),
       stops: (stops.data ?? []) as Stop[],
       votes: (votes.data ?? []) as Vote[],
       admins: (admins.data ?? []) as unknown as TripAdminRow[],
-      placeInfo: (placeInfo.data ?? []) as PlaceInfoRow[],
+      placeInfo: infoRows,
       budgetItems: (budgetItems.data ?? []) as BudgetItemRow[],
       budgetShares: budgetShares.data ?? [],
       exchangeRates: (exchangeRates.data ?? []) as ExchangeRate[],
@@ -65,7 +77,16 @@ export async function useTripAdmin(tripId: string) {
   const votes = computed(() => data.value?.votes ?? [])
   const admins = computed(() => data.value?.admins ?? [])
   const placeInfo = computed(() => data.value?.placeInfo ?? [])
-  const placeInfoByPlace = computed(() => new Map(placeInfo.value.map(pi => [pi.place_id, pi])))
+  /** id del lugar en el viaje → su ficha (que se guarda por lugar del catálogo) */
+  const placeInfoByPlace = computed(() => {
+    const byCatalog = new Map(placeInfo.value.map(pi => [pi.catalog_place_id, pi]))
+    const map = new Map<string, PlaceInfoRow>()
+    for (const p of places.value) {
+      const info = byCatalog.get(p.catalog_place_id)
+      if (info) map.set(p.id, info)
+    }
+    return map
+  })
   const isOwner = computed(() => !!trip.value && trip.value.owner_id === userId.value)
   const isClosed = computed(() => !!trip.value && new Date(trip.value.rsvp_deadline) < new Date())
   const tz = computed(() => trip.value?.time_zone ?? 'America/Santiago')

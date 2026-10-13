@@ -1,11 +1,13 @@
 /** Subida y limpieza de fotos de lugares en el bucket place-photos */
 export function usePlacePhotos() {
   const { client } = useDb()
+  const catalog = useCatalog()
   const bucket = () => client.storage.from('place-photos')
 
-  async function upload(tripId: string, blob: Blob): Promise<string> {
+  /** Sube la foto de un lugar del catálogo. Solo puede quien lo puede editar. */
+  async function upload(catalogPlaceId: string, blob: Blob): Promise<string> {
     const ext = blob.type === 'image/webp' ? 'webp' : 'jpg'
-    const path = `${tripId}/${crypto.randomUUID()}.${ext}`
+    const path = `catalog/${catalogPlaceId}/${crypto.randomUUID()}.${ext}`
     const { error } = await bucket().upload(path, blob, { contentType: blob.type, cacheControl: '31536000', upsert: false })
     if (error) throw error
     return path
@@ -22,12 +24,14 @@ export function usePlacePhotos() {
   }
 
   /** Reemplaza la foto de un lugar ya guardado y borra la anterior */
-  async function replace(place: { id: string, trip_id: string, photo_path: string | null }, blob: Blob) {
-    const path = await upload(place.trip_id, blob)
-    const { error } = await client.from('places').update({ photo_path: path }).eq('id', place.id)
-    if (error) {
+  async function replace(place: { catalog_place_id: string, photo_path: string | null }, blob: Blob) {
+    const path = await upload(place.catalog_place_id, blob)
+    try {
+      await catalog.update(place.catalog_place_id, { photo_path: path })
+    }
+    catch (err) {
       await remove(path)
-      throw error
+      throw err
     }
     await remove(place.photo_path)
     return path
