@@ -104,15 +104,49 @@ async function move(s: Stop, dir: -1 | 1) {
   await refresh()
 }
 
+/** Cambia una parada de día (al soltarla sobre otro día o desde el menú). Conserva su hora. */
+async function moveToDay(stopId: string, target: string) {
+  const s = stops.value.find(x => x.id === stopId)
+  if (!s) return
+  const change = moveStopToDay(s, target, stops.value, days.value)
+  if (!change) return
+  const { error } = await client.from('itinerary_stops').update(change).eq('id', s.id)
+  if (error) return toast.add({ color: 'error', title: 'No se pudo mover la parada', description: errorMessage(error) })
+  toast.add({ color: 'success', title: `Parada movida al Día ${days.value.indexOf(target) + 1}`, description: stopTitle(s) })
+  await refresh()
+}
+
+// Las fichas de día también reciben paradas: sirven cuando se está viendo un solo día
+const chipOver = ref<string | null>(null)
+const isStopDrag = (e: DragEvent) => !!e.dataTransfer?.types.includes(STOP_DRAG_TYPE)
+function onChipDragOver(e: DragEvent, d: string) {
+  if (d === 'all' || !isStopDrag(e)) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  chipOver.value = d
+}
+function onChipDrop(e: DragEvent, d: string) {
+  chipOver.value = null
+  const id = e.dataTransfer?.getData(STOP_DRAG_TYPE)
+  if (d === 'all' || !id) return
+  e.preventDefault()
+  moveToDay(id, d)
+}
+
 function menu(it: TimelineItem): DropdownMenuItem[][] {
   const s = stops.value.find(x => x.id === it.id)!
   const list = stopsByDay.value.get(s.day) ?? []
   const i = list.findIndex(x => x.id === s.id)
+  const otherDays = days.value
+    .map((d, n) => ({ label: `Día ${n + 1} · ${formatDayShort(d)}`, day: d }))
+    .filter(x => x.day !== s.day)
+    .map(x => ({ label: x.label, onSelect: () => { moveToDay(s.id, x.day) } }))
   return [
     [
       { label: 'Editar', icon: 'i-lucide-pencil', onSelect: () => openStopForm({ stop: s }) },
       { label: 'Mover antes', icon: 'i-lucide-arrow-up', disabled: i <= 0, onSelect: () => move(s, -1) },
       { label: 'Mover después', icon: 'i-lucide-arrow-down', disabled: i === list.length - 1, onSelect: () => move(s, 1) },
+      { label: 'Mover a otro día', icon: 'i-lucide-calendar-days', disabled: !otherDays.length, children: otherDays },
     ],
     [{ label: 'Quitar', icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => { deleteTarget.value = s } }],
   ]
@@ -155,7 +189,11 @@ async function confirmDelete() {
         :color="day === c.value ? 'primary' : 'neutral'"
         :variant="day === c.value ? 'solid' : 'outline'"
         class="shrink-0"
+        :class="chipOver === c.value ? 'outline-2 outline-offset-2 outline-dashed outline-primary' : ''"
         @click="day = c.value"
+        @dragover="onChipDragOver($event, c.value)"
+        @dragleave="chipOver = null"
+        @drop="onChipDrop($event, c.value)"
       >
         {{ c.label }}
         <UBadge v-if="'count' in c && c.count" size="sm" :color="day === c.value ? 'neutral' : 'primary'" variant="subtle">
@@ -180,8 +218,10 @@ async function confirmDelete() {
           :items="items"
           :day="day"
           :highlight-id="hoverPlace"
+          draggable
           @hover="hoverPlace = $event"
           @focus="selectedPlace = $event"
+          @move="moveToDay"
         >
           <template #dayActions="{ day: d }">
             <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-plus" @click="openStopForm({ day: d })">
