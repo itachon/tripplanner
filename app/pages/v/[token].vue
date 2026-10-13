@@ -25,7 +25,8 @@ const tz = computed(() => trip.value?.time_zone ?? 'UTC')
 const busy = ref<string | null>(null)
 const declineOpen = ref(false)
 type Tab = 'lugares' | 'itinerario' | 'presupuesto'
-const tab = ref<Tab>('lugares')
+// Se abre en la primera pestaña que ya tiene contenido: itinerario, presupuesto y, si no, lugares
+const tab = ref<Tab>(view.value?.itinerary_published ? 'itinerario' : view.value?.budget_published ? 'presupuesto' : 'lugares')
 function setTab(v: string | number) {
   tab.value = v as Tab
 }
@@ -87,9 +88,9 @@ const myVotes = computed(() => votable.value.filter(p => p.voted).length)
 const coverUrl = coverPhoto(places.value ?? [])
 
 const tabItems = computed(() => [
-  { label: 'Lugares', icon: 'i-lucide-map-pin', value: 'lugares', slot: 'lugares' as const, count: votable.value.length, locked: false },
   { label: 'Itinerario', icon: 'i-lucide-calendar-days', value: 'itinerario', slot: 'itinerario' as const, count: 0, locked: !view.value?.itinerary_published },
   { label: 'Presupuesto', icon: 'i-lucide-wallet', value: 'presupuesto', slot: 'presupuesto' as const, count: 0, locked: !view.value?.budget_published },
+  { label: 'Lugares', icon: 'i-lucide-map-pin', value: 'lugares', slot: 'lugares' as const, count: votable.value.length, locked: false },
 ])
 
 const placeMarkers = computed<MapMarker[]>(() => votable.value.map(p => ({
