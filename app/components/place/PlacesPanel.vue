@@ -271,8 +271,16 @@ async function confirmDelete() {
   const p = deleteTarget.value
   if (!p) return
   busy.value = true
+  // La foto de un lugar privado solo se puede borrar mientras el lugar existe y ya no la muestra:
+  // primero se suelta del catálogo, luego se borra el archivo y al final el vínculo (que manda).
+  if (!p.is_public && p.editable && p.photo_path) {
+    try {
+      await catalog.update(p.catalog_place_id, { photo_path: null })
+      await photos.remove(p.photo_path)
+    }
+    catch { /* la foto no debe impedir borrar el lugar */ }
+  }
   const { error } = await client.from('places').delete().eq('id', p.id)
-  if (!error && !p.is_public) await photos.remove(p.photo_path)
   busy.value = false
   deleteTarget.value = null
   if (error) return toast.add({ color: 'error', title: 'No se pudo borrar', description: errorMessage(error) })

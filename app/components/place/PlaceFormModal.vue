@@ -137,7 +137,14 @@ async function onSubmit(e: FormSubmitEvent<typeof state>) {
       if (p.editable) {
         if (newPhoto.value) photoPath = uploaded = await photos.upload(p.catalog_place_id, newPhoto.value)
         else if (removePhoto.value) photoPath = null
-        await catalog.update(p.catalog_place_id, { ...shared, photo_path: photoPath, is_public: e.data.isPublic })
+        // Solo viaja lo que cambió: así, por ejemplo, no se reenvía la visibilidad sin necesidad
+        const patch: Record<string, string | boolean | null> = {}
+        if (shared.name !== p.name) patch.name = shared.name
+        if (shared.address !== (p.address || null)) patch.address = shared.address
+        if (shared.category !== (p.category || null)) patch.category = shared.category
+        if (photoPath !== p.photo_path) patch.photo_path = photoPath
+        if (e.data.isPublic !== p.is_public) patch.is_public = e.data.isPublic
+        if (Object.keys(patch).length) await catalog.update(p.catalog_place_id, patch)
         // El catálogo ya apunta al archivo nuevo: ya no se debe borrar si algo falla después
         uploaded = null
       }
@@ -239,9 +246,9 @@ onBeforeUnmount(() => setPreview(null))
         <UFormField v-if="canEditShared" name="isPublic" label="Visibilidad">
           <USwitch
             :model-value="!state.isPublic"
-            :disabled="!!editing?.used_elsewhere"
+            :disabled="!!editing?.is_public && !!editing?.used_elsewhere"
             label="Solo para este viaje"
-            :description="editing?.used_elsewhere ? 'Otro viaje ya usa este lugar: no se puede dejar solo para este viaje.' : 'Otros organizadores no podrán verlo ni usarlo.'"
+            :description="editing?.is_public && editing?.used_elsewhere ? 'Otro viaje ya usa este lugar: no se puede dejar solo para este viaje.' : 'Otros organizadores no podrán verlo ni usarlo.'"
             class="pt-1.5"
             @update:model-value="state.isPublic = !$event"
           />

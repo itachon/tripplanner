@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Tables } from '~~/shared/types/database.types'
+import type { TripCover } from '~~/shared/types/catalog'
 
 definePageMeta({ layout: 'admin' })
 useHead({ title: 'Mis viajes' })
@@ -14,7 +15,7 @@ const createOpen = ref(false)
 const { data, status } = await useAsyncData('admin-trips', async () => {
   const [tripsRes, covers] = await Promise.all([
     client.from('trips').select('*, members(count), places(count)').order('start_date', { ascending: true }),
-    catalog.covers(),
+    catalog.covers().catch((): TripCover[] => []),
   ])
   if (tripsRes.error) throw tripsRes.error
   return { trips: tripsRes.data as unknown as TripRow[], covers }
