@@ -19,6 +19,14 @@ if (!error.value && !trip.value) {
 
 const editOpen = ref(false)
 
+// Misma portada que ve el viajero: el lugar más votado que tenga foto
+const photoUrl = usePlacePhotoUrl()
+const coverUrl = computed(() => coverPhoto(ctx.places.value.map(p => ({
+  photo_url: photoUrl(p.photo_path),
+  info: ctx.placeInfoByPlace.value.get(p.id),
+  vote_count: ctx.votersByPlace.value.get(p.id)?.length ?? 0,
+}))))
+
 const tabs = computed<TabsItem[]>(() => [
   { label: 'Resumen', icon: 'i-lucide-layout-dashboard', value: 'resumen', slot: 'resumen' as const },
   { label: 'Lugares', icon: 'i-lucide-map-pin', value: 'lugares', slot: 'lugares' as const, badge: stats.value.places || undefined },
@@ -46,49 +54,42 @@ const stopOpen = computed({
 
 <template>
   <div v-if="trip">
-    <UButton to="/admin" color="neutral" variant="link" icon="i-lucide-arrow-left" class="-ml-2.5 mb-2">
-      Mis viajes
-    </UButton>
-
-    <div class="mb-6 flex flex-wrap items-start justify-between gap-4">
-      <div class="min-w-0">
-        <h1 class="text-2xl font-bold sm:text-3xl">
-          {{ trip.name }}
-        </h1>
-        <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
-          <span v-if="trip.destination" class="flex items-center gap-1.5">
-            <UIcon name="i-lucide-globe" class="size-4" />
-            {{ trip.destination }}
-          </span>
-          <span class="flex items-center gap-1.5">
-            <UIcon name="i-lucide-calendar-range" class="size-4" />
-            {{ formatDateRange(trip.start_date, trip.end_date) }}
-          </span>
-        </div>
-        <div class="mt-2 flex flex-wrap gap-2">
-          <UBadge v-if="isClosed" color="neutral" variant="subtle" icon="i-lucide-lock">
-            Confirmación y votación cerradas
-          </UBadge>
-          <UBadge v-else color="primary" variant="subtle" icon="i-lucide-clock">
-            Confirman y votan hasta {{ formatShortDateTime(trip.rsvp_deadline, tz) }}
-          </UBadge>
-          <UBadge v-if="trip.itinerary_published" color="success" variant="subtle" icon="i-lucide-eye">
-            Itinerario publicado
-          </UBadge>
-          <UBadge v-else color="warning" variant="subtle" icon="i-lucide-eye-off">
-            Itinerario oculto
-          </UBadge>
-          <UBadge v-if="trip.budget_published" color="success" variant="subtle" icon="i-lucide-eye">
-            Presupuesto publicado
-          </UBadge>
-          <UBadge v-else color="warning" variant="subtle" icon="i-lucide-eye-off">
-            Presupuesto oculto
-          </UBadge>
-        </div>
-      </div>
+    <div class="mb-3 flex items-center justify-between gap-3">
+      <UButton to="/admin" color="neutral" variant="link" icon="i-lucide-arrow-left" class="-ml-2.5">
+        Mis viajes
+      </UButton>
       <UButton color="neutral" variant="outline" icon="i-lucide-pencil" @click="editOpen = true">
         Editar
       </UButton>
+    </div>
+
+    <TripCover
+      :name="trip.name"
+      :destination="trip.destination"
+      :date-range="formatDateRange(trip.start_date, trip.end_date)"
+      :photo-url="coverUrl"
+      size="band"
+    />
+
+    <div class="mb-6 mt-4 flex flex-wrap gap-2">
+      <UBadge v-if="isClosed" color="neutral" variant="subtle" icon="i-lucide-lock">
+        Confirmación y votación cerradas
+      </UBadge>
+      <UBadge v-else color="primary" variant="subtle" icon="i-lucide-clock">
+        Confirman y votan hasta {{ formatShortDateTime(trip.rsvp_deadline, tz) }}
+      </UBadge>
+      <UBadge v-if="trip.itinerary_published" color="success" variant="subtle" icon="i-lucide-eye">
+        Itinerario publicado
+      </UBadge>
+      <UBadge v-else color="warning" variant="subtle" icon="i-lucide-eye-off">
+        Itinerario oculto
+      </UBadge>
+      <UBadge v-if="trip.budget_published" color="success" variant="subtle" icon="i-lucide-eye">
+        Presupuesto publicado
+      </UBadge>
+      <UBadge v-else color="warning" variant="subtle" icon="i-lucide-eye-off">
+        Presupuesto oculto
+      </UBadge>
     </div>
 
     <UTabs

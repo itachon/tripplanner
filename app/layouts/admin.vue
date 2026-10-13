@@ -17,11 +17,11 @@ const userMenu = computed(() => [
 
 <template>
   <div class="min-h-dvh bg-canvas">
-    <header class="sticky top-0 z-40 border-b border-default bg-default/90 backdrop-blur">
+    <header class="sticky top-0 z-40 border-b border-default bg-canvas/90 backdrop-blur">
       <UContainer class="flex h-14 items-center justify-between gap-4">
-        <NuxtLink to="/admin" class="flex items-center gap-2 font-semibold">
+        <NuxtLink to="/admin" class="flex items-center gap-2">
           <UIcon name="i-lucide-plane" class="size-5 text-primary" />
-          <span>Viajes</span>
+          <span class="font-serif text-xl font-semibold">Viajes</span>
         </NuxtLink>
 
         <UDropdownMenu :items="userMenu" :content="{ align: 'end' }">

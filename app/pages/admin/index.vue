@@ -4,19 +4,33 @@ import type { Tables } from '~~/shared/types/database.types'
 definePageMeta({ layout: 'admin' })
 useHead({ title: 'Mis viajes' })
 
-type TripRow = Tables<'trips'> & { members: { count: number }[], places: { count: number }[] }
+type CoverPlace = { id: string, photo_path: string | null, sort_order: number, created_at: string }
+type TripRow = Tables<'trips'> & {
+  members: { count: number }[]
+  places: { count: number }[]
+  cover_places: CoverPlace[]
+  cover_info: { place_id: string, photo_url: string | null }[]
+}
 
 const { client, userId } = useDb()
+const photoUrl = usePlacePhotoUrl()
 const createOpen = ref(false)
 
 const { data: trips, status } = await useAsyncData('admin-trips', async () => {
   const { data, error } = await client
     .from('trips')
-    .select('*, members(count), places(count)')
+    .select('*, members(count), places(count), cover_places:places(id, photo_path, sort_order, created_at), cover_info:place_info(place_id, photo_url)')
     .order('start_date', { ascending: true })
   if (error) throw error
   return data as unknown as TripRow[]
 })
+
+/** Portada de un viaje: el primer lugar, en el orden del organizador, que tenga foto */
+function coverOf(t: TripRow) {
+  const info = new Map(t.cover_info.map(i => [i.place_id, i]))
+  const ordered = [...t.cover_places].sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at))
+  return coverPhoto(ordered.map(p => ({ photo_url: photoUrl(p.photo_path), info: info.get(p.id) })))
+}
 
 const upcoming = computed(() => (trips.value ?? []).filter(t => todayIn(t.time_zone) <= t.end_date))
 const past = computed(() => (trips.value ?? []).filter(t => todayIn(t.time_zone) > t.end_date).reverse())
@@ -30,7 +44,7 @@ function onCreated(t: Tables<'trips'>) {
   <div>
     <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h1 class="text-2xl font-bold">
+        <h1 class="font-serif text-3xl font-semibold">
           Mis viajes
         </h1>
         <p class="text-sm text-muted">
@@ -43,7 +57,7 @@ function onCreated(t: Tables<'trips'>) {
     </div>
 
     <div v-if="status === 'pending' && !trips" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <USkeleton v-for="i in 3" :key="i" class="h-40 rounded-lg" />
+      <USkeleton v-for="i in 3" :key="i" class="h-72 rounded-md" />
     </div>
 
     <UEmpty
@@ -57,14 +71,14 @@ function onCreated(t: Tables<'trips'>) {
 
     <template v-else>
       <div v-if="upcoming.length" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <TripCard v-for="t in upcoming" :key="t.id" :trip="t" :is-owner="t.owner_id === userId" />
+        <TripCard v-for="t in upcoming" :key="t.id" :trip="t" :is-owner="t.owner_id === userId" :photo-url="coverOf(t)" />
       </div>
       <section v-if="past.length" class="mt-10 space-y-3">
         <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">
           Viajes pasados
         </h2>
         <div class="grid gap-4 opacity-75 sm:grid-cols-2 lg:grid-cols-3">
-          <TripCard v-for="t in past" :key="t.id" :trip="t" :is-owner="t.owner_id === userId" />
+          <TripCard v-for="t in past" :key="t.id" :trip="t" :is-owner="t.owner_id === userId" :photo-url="coverOf(t)" />
         </div>
       </section>
     </template>
