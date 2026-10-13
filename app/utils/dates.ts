@@ -48,7 +48,16 @@ export function formatDayShort(day: string | null | undefined): string {
   return fmt('UTC', 'dayShort', { weekday: 'short', day: 'numeric', month: 'short' }).format(dayToDate(day)).replace(',', '').replace(/\./g, '')
 }
 
-/** "10 al 20 de abril de 2027" / "28 de marzo al 3 de abril de 2027" */
+/** Partes de la ficha de un día del itinerario: { weekday: 'lun', num: '12' } */
+export function dayChipParts(day: string): { weekday: string, num: string } {
+  const d = dayToDate(day)
+  return {
+    weekday: fmt('UTC', 'chipWeekday', { weekday: 'short' }).format(d).replace(/\./g, ''),
+    num: String(d.getUTCDate()),
+  }
+}
+
+/** "10 al 20 de abril de 2027" /"28 de marzo al 3 de abril de 2027" */
 export function formatDateRange(start: string, end: string): string {
   const a = dayToDate(start)
   const b = dayToDate(end)

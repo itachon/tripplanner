@@ -49,3 +49,34 @@ async function loadBitmap(file: Blob): Promise<ImageBitmap | HTMLImageElement> {
     URL.revokeObjectURL(url)
   }
 }
+
+/** Lo mínimo de un lugar para elegir su foto */
+export interface CoverCandidate {
+  photo_url?: string | null
+  info?: { photo_url?: string | null } | null
+  vote_count?: number | null
+}
+
+/** Mejor foto disponible de un lugar: la subida y, si falta, la de su ficha */
+export function placePhoto(p: CoverCandidate): string | null {
+  return p.photo_url || p.info?.photo_url || null
+}
+
+/**
+ * Foto de portada de un viaje: la del lugar más votado que tenga foto.
+ * En un empate (o sin votos) gana el primero de la lista.
+ */
+export function coverPhoto(places: CoverCandidate[]): string | null {
+  let best: string | null = null
+  let bestVotes = -1
+  for (const p of places) {
+    const url = placePhoto(p)
+    if (!url) continue
+    const votes = p.vote_count ?? 0
+    if (votes > bestVotes) {
+      best = url
+      bestVotes = votes
+    }
+  }
+  return best
+}
