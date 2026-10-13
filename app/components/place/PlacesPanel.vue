@@ -2,13 +2,15 @@
 import type { DropdownMenuItem } from '@nuxt/ui'
 import type { PlaceSearchResult } from '~/composables/useMapbox'
 import type { Place } from '~/composables/useTripAdmin'
+import type { CatalogPlace } from '~~/shared/types/catalog'
 import type { MapMarker } from '~~/shared/types/map'
 import type { PlaceDraft } from './PlaceFormModal.vue'
 
-const { places, votersByPlace, stopsByPlace, stats, refresh, openStopForm, placeInfoByPlace } = useTripCtx()
+const { trip, places, votersByPlace, stopsByPlace, stats, refresh, openStopForm, placeInfoByPlace } = useTripCtx()
 const { client } = useDb()
 const photoUrl = usePlacePhotoUrl()
 const photos = usePlacePhotos()
+const catalog = useCatalog()
 const { reverse } = useMapbox()
 const toast = useToast()
 
@@ -21,6 +23,27 @@ const enriching = ref(new Set<string>())
 
 const formOpen = ref(false)
 const formDraft = ref<PlaceDraft | null>(null)
+// Al marcar un punto a mano: lugares del catálogo a 100 m o menos, para no duplicar
+const nearby = ref<CatalogPlace[]>([])
+const nearbyDraft = ref<PlaceDraft | null>(null)
+const nearbyOpen = computed({ get: () => nearby.value.length > 0, set: (v) => { if (!v) closeNearby() } })
+function closeNearby() {
+  nearby.value = []
+  nearbyDraft.value = null
+  if (!formOpen.value) pendingPin.value = null
+}
+function createFromNearby() {
+  formDraft.value = nearbyDraft.value
+  nearby.value = []
+  nearbyDraft.value = null
+  formOpen.value = true
+}
+async function useNearby(c: CatalogPlace) {
+  nearby.value = []
+  nearbyDraft.value = null
+  pendingPin.value = null
+  await addFromCatalog(c)
+}
 // Se guarda solo el id: así la ficha muestra los datos frescos tras cada refresh().
 const detailId = ref<string | null>(null)
 const deleteTarget = ref<Place | null>(null)
@@ -107,6 +130,20 @@ function onSearchSelect(r: PlaceSearchResult) {
   formOpen.value = true
 }
 
+/** Suma al viaje un lugar que ya está en el catálogo, con su foto y su ficha */
+async function addFromCatalog(c: CatalogPlace) {
+  if (!trip.value) return
+  try {
+    const res = await catalog.addExisting(trip.value.id, c.id)
+    toast.add({ color: 'success', title: 'Lugar agregado', description: `${c.name} ya estaba en el catálogo.` })
+    await refresh()
+    selectedId.value = res.place_id
+  }
+  catch (err) {
+    toast.add({ color: 'error', title: 'No se pudo agregar', description: errorMessage(err) })
+  }
+}
+
 async function onPick(coords: { latitude: number, longitude: number, name?: string | null, category?: string | null }) {
   picking.value = false
   pendingPin.value = coords
@@ -121,9 +158,17 @@ async function onPick(coords: { latitude: number, longitude: number, name?: stri
     address = found?.address ?? null
     category = found?.category ?? null
   }
-  formDraft.value = {
+  const draft: PlaceDraft = {
     result: { id: '', name, address, category, latitude: coords.latitude, longitude: coords.longitude },
   }
+  // Si la consulta falla, se sigue al formulario como siempre
+  const found = trip.value ? await catalog.near(coords.latitude, coords.longitude, trip.value.id).catch(() => []) : []
+  if (found.length) {
+    nearbyDraft.value = draft
+    nearby.value = found
+    return
+  }
+  formDraft.value = draft
   formOpen.value = true
 }
 
@@ -304,7 +349,7 @@ function showDetail(p: Place) {
     <!-- Lista -->
     <div class="space-y-3">
       <div class="space-y-2">
-        <PlaceSearch :near="near" @select="onSearchSelect" />
+        <PlaceSearch v-if="trip" :trip-id="trip.id" :near="near" @select="onSearchSelect" @select-catalog="addFromCatalog" />
         <div class="flex items-center justify-between gap-2">
           <UButton
             size="sm"
@@ -413,6 +458,40 @@ function showDetail(p: Place) {
         </template>
       </template>
     </div>
+
+    <UModal v-model:open="nearbyOpen" title="¿Es alguno de estos?" description="Ya hay lugares guardados muy cerca del punto que marcaste.">
+      <template #body>
+        <ul class="divide-y divide-default overflow-hidden rounded-md border border-default">
+          <li v-for="c in nearby" :key="c.id" class="flex items-center gap-3 px-3 py-2.5">
+            <img v-if="photoUrl(c.photo_path)" :src="photoUrl(c.photo_path)!" alt="" class="size-10 shrink-0 rounded-sm object-cover">
+            <span v-else class="flex size-10 shrink-0 items-center justify-center rounded-sm bg-elevated">
+              <UIcon name="i-lucide-bookmark" class="size-4 text-primary" />
+            </span>
+            <div class="min-w-0 flex-1">
+              <p class="truncate font-medium">
+                {{ c.name }}
+              </p>
+              <p v-if="c.address" class="truncate text-xs text-muted">
+                {{ c.address }}
+              </p>
+            </div>
+            <UButton size="sm" variant="soft" @click="useNearby(c)">
+              Usar este
+            </UButton>
+          </li>
+        </ul>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton color="neutral" variant="ghost" @click="nearbyOpen = false">
+            Cancelar
+          </UButton>
+          <UButton color="neutral" variant="outline" icon="i-lucide-plus" @click="createFromNearby">
+            No, crear uno nuevo
+          </UButton>
+        </div>
+      </template>
+    </UModal>
 
     <PlaceFormModal v-model:open="formOpen" :draft="formDraft" @saved="onSaved" />
 
