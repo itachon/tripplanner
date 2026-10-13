@@ -24,12 +24,26 @@ const tz = computed(() => trip.value?.time_zone ?? 'UTC')
 
 const busy = ref<string | null>(null)
 const declineOpen = ref(false)
-const tab = ref<'lugares' | 'itinerario' | 'presupuesto'>('lugares')
+type Tab = 'lugares' | 'itinerario' | 'presupuesto'
+const tab = ref<Tab>('lugares')
+function setTab(v: string | number) {
+  tab.value = v as Tab
+}
 const sortBy = ref<'votes' | 'order'>('votes')
 const selectedId = ref<string | null>(null)
 const hoverId = ref<string | null>(null)
 const detail = ref<MemberPlace | null>(null)
 const detailOpen = computed({ get: () => !!detail.value, set: (v) => { if (!v) detail.value = null } })
+
+// Mapa a pantalla completa en celular (en escritorio el mapa siempre está a la vista)
+const mapOpen = ref(false)
+watch(tab, () => { mapOpen.value = false })
+useHead({ bodyAttrs: { class: () => mapOpen.value ? 'max-lg:overflow-hidden' : '' } })
+
+function showOnMap(id: string) {
+  selectedId.value = id
+  mapOpen.value = true
+}
 
 // ---------- SEO / vista previa en WhatsApp ----------
 useSeoMeta({
@@ -51,6 +65,14 @@ const sortedVotable = computed(() => {
   return arr
 })
 const myVotes = computed(() => votable.value.filter(p => p.voted).length)
+
+const coverUrl = computed(() => coverPhoto(places.value ?? []))
+
+const tabItems = computed(() => [
+  { label: 'Lugares', icon: 'i-lucide-map-pin', value: 'lugares', count: votable.value.length, locked: false },
+  { label: 'Itinerario', icon: 'i-lucide-calendar-days', value: 'itinerario', count: 0, locked: !view.value?.itinerary_published },
+  { label: 'Presupuesto', icon: 'i-lucide-wallet', value: 'presupuesto', count: 0, locked: !view.value?.budget_published },
+])
 
 const placeMarkers = computed<MapMarker[]>(() => votable.value.map(p => ({
   id: p.id,
@@ -165,10 +187,13 @@ const itSelected = ref<string | null>(null)
 const itHover = ref<string | null>(null)
 const stopsAt = (placeId: string) => itStops.value.filter(s => s.place_id === placeId)
 
-const dayChips = computed(() => [
-  { label: 'Todo', value: 'all' },
-  ...days.value.map((d, i) => ({ label: d === today.value ? `Hoy · Día ${i + 1}` : `Día ${i + 1}`, value: d })),
-])
+const dayChips = computed(() => days.value.map((d, i) => ({
+  value: d,
+  ...dayChipParts(d),
+  today: d === today.value,
+  label: `Día ${i + 1}: ${formatDay(d, true)}${d === today.value ? ' (hoy)' : ''}`,
+})))
+
 // ---------- Presupuesto ----------
 const budget = computed(() => view.value?.budget ?? null)
 const bRates = computed<Rates>(() => Object.fromEntries((budget.value?.rates ?? []).map(r => [r.currency, r.rate])))
@@ -184,12 +209,12 @@ const myBalance = computed(() => bBalances.value.find(b => b.member_id === budge
 </script>
 
 <template>
-  <div class="min-h-dvh bg-default">
+  <div class="min-h-dvh bg-canvas">
     <!-- Link inválido -->
     <div v-if="error || !view" class="flex min-h-dvh items-center justify-center px-6">
       <div class="max-w-sm text-center">
         <UIcon name="i-lucide-map-pin-off" class="size-12 text-muted" />
-        <h1 class="mt-4 text-xl font-semibold">
+        <h1 class="mt-4 font-serif text-2xl font-semibold">
           Link no encontrado
         </h1>
         <p class="mt-2 text-muted">
@@ -200,38 +225,31 @@ const myBalance = computed(() => bBalances.value.find(b => b.member_id === budge
 
     <template v-else-if="me && trip">
       <!-- Portada -->
-      <header class="bg-gradient-to-br from-primary-600 to-primary-800 text-white dark:from-primary-800 dark:to-primary-950">
-        <div class="mx-auto max-w-5xl px-4 pb-10 pt-10 sm:pb-14 sm:pt-14">
-          <span class="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur">
-            <UIcon name="i-lucide-plane" class="size-3.5" />
-            {{ tripCountdown(trip.start_date, trip.end_date, trip.time_zone) }}
-          </span>
-          <h1 class="mt-4 text-balance text-3xl font-bold leading-tight sm:text-5xl">
-            {{ trip.name }}
-          </h1>
-          <div class="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-white/85">
-            <span v-if="trip.destination" class="flex items-center gap-1.5">
-              <UIcon name="i-lucide-globe" class="size-4" /> {{ trip.destination }}
-            </span>
-            <span class="flex items-center gap-1.5">
-              <UIcon name="i-lucide-calendar-range" class="size-4" /> {{ formatDateRange(trip.start_date, trip.end_date) }}
-            </span>
-          </div>
-          <p class="mt-6 text-lg">
-            Hola, <span class="font-semibold">{{ me.name }}</span> 👋
-          </p>
-          <p v-if="trip.description" class="mt-2 max-w-2xl whitespace-pre-line text-white/85">
-            {{ trip.description }}
-          </p>
-        </div>
-      </header>
+      <TripCover
+        :name="trip.name"
+        :destination="trip.destination"
+        :date-range="formatDateRange(trip.start_date, trip.end_date)"
+        :photo-url="coverUrl"
+        size="full"
+      >
+        <template #eyebrow>
+          <UIcon name="i-lucide-plane" class="size-3.5" />
+          {{ tripCountdown(trip.start_date, trip.end_date, trip.time_zone) }}
+        </template>
+        <p class="mt-6 text-lg">
+          Hola, <span class="font-semibold">{{ me.name }}</span> 👋
+        </p>
+        <p v-if="trip.description" class="mt-2 max-w-2xl whitespace-pre-line text-white/85">
+          {{ trip.description }}
+        </p>
+      </TripCover>
 
-      <main class="mx-auto max-w-5xl px-4 pb-16">
+      <main class="mx-auto max-w-7xl px-4 pb-24">
         <!-- Confirmación -->
-        <UCard class="-mt-6 shadow-lg">
+        <UCard class="relative -mt-8 shadow-lg">
           <div v-if="me.status === 'pending'" class="flex flex-col items-center gap-4 text-center sm:flex-row sm:justify-between sm:text-left">
             <div>
-              <p class="text-lg font-semibold">
+              <p class="font-serif text-xl font-semibold">
                 {{ isOpen ? '¿Te sumas al viaje?' : 'El plazo para confirmar terminó' }}
               </p>
               <p class="text-sm text-muted">
@@ -259,7 +277,7 @@ const myBalance = computed(() => bBalances.value.find(b => b.member_id === budge
                 <UIcon name="i-lucide-check" class="size-5 text-success" />
               </div>
               <div class="text-left">
-                <p class="font-semibold">
+                <p class="font-serif text-xl font-semibold">
                   ¡Estás dentro del viaje!
                 </p>
                 <p class="text-sm text-muted">
@@ -274,7 +292,7 @@ const myBalance = computed(() => bBalances.value.find(b => b.member_id === budge
 
           <div v-else class="flex flex-col items-center gap-3 text-center sm:flex-row sm:justify-between sm:text-left">
             <div>
-              <p class="font-semibold">
+              <p class="font-serif text-xl font-semibold">
                 Gracias por avisar
               </p>
               <p class="text-sm text-muted">
@@ -288,29 +306,28 @@ const myBalance = computed(() => bBalances.value.find(b => b.member_id === budge
         </UCard>
 
         <!-- Pestañas -->
-        <div class="mt-8 flex gap-1 border-b border-default">
-          <button
-            v-for="t in [{ v: 'lugares', l: 'Lugares', i: 'i-lucide-map-pin', n: votable.length }, { v: 'itinerario', l: 'Itinerario', i: 'i-lucide-calendar-days', n: 0 }, { v: 'presupuesto', l: 'Presupuesto', i: 'i-lucide-wallet', n: 0 }]"
-            :key="t.v"
-            type="button"
-            class="-mb-px flex items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition"
-            :class="tab === t.v ? 'border-primary text-primary' : 'border-transparent text-muted hover:text-default'"
-            @click="tab = t.v as 'lugares' | 'itinerario' | 'presupuesto'"
-          >
-            <UIcon :name="t.i" class="size-4" />
-            {{ t.l }}
-            <UBadge v-if="t.n" size="sm" color="neutral" variant="subtle">
-              {{ t.n }}
+        <UTabs
+          :model-value="tab"
+          :items="tabItems"
+          :content="false"
+          variant="link"
+          class="mt-8"
+          :ui="{ list: 'overflow-x-auto', trigger: 'shrink-0' }"
+          @update:model-value="setTab"
+        >
+          <template #trailing="{ item }">
+            <UBadge v-if="item.count" size="sm" color="neutral" variant="subtle">
+              {{ item.count }}
             </UBadge>
-            <UIcon v-if="(t.v === 'itinerario' && !view.itinerary_published) || (t.v === 'presupuesto' && !view.budget_published)" name="i-lucide-lock" class="size-3.5" />
-          </button>
-        </div>
+            <UIcon v-if="item.locked" name="i-lucide-lock" class="size-3.5" />
+          </template>
+        </UTabs>
 
         <!-- Lugares -->
         <section v-show="tab === 'lugares'" class="pt-5">
           <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h2 class="text-lg font-semibold">
+              <h2 class="font-serif text-2xl font-semibold">
                 ¿Qué quieres conocer?
               </h2>
               <p class="text-sm text-muted">
@@ -350,116 +367,90 @@ const myBalance = computed(() => bBalances.value.find(b => b.member_id === budge
             icon="i-lucide-map"
             title="Todavía no hay lugares para votar"
             description="Cuando el organizador agregue destinos, aparecerán aquí."
-            class="rounded-lg border border-dashed border-default py-12"
+            class="rounded-md border border-dashed border-default py-12"
           />
 
           <template v-else>
-            <div class="mb-5 h-96 overflow-hidden rounded-xl border border-default sm:h-[420px]">
-              <TripMap
-                :markers="placeMarkers"
-                :selected-id="selectedId"
-                :highlight-id="hoverId"
-                @select="selectedId = $event"
+            <div class="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] lg:items-start lg:gap-6">
+              <div class="grid gap-4 sm:grid-cols-2">
+                <PlaceCard
+                  v-for="p in sortedVotable"
+                  :key="p.id"
+                  :place="p"
+                  :order="orderOf.get(p.id)!"
+                  :can-vote="canVote"
+                  :busy="busy"
+                  :active="hoverId === p.id || selectedId === p.id"
+                  :show-itinerary-badge="p.in_itinerary && view.itinerary_published"
+                  @vote="toggleVote(p)"
+                  @select="showOnMap(p.id)"
+                  @detail="detail = p"
+                  @hover="hoverId = $event ? p.id : null"
+                />
+              </div>
+
+              <!-- Un solo mapa: lateral y fijo en escritorio; a pantalla completa en celular cuando mapOpen -->
+              <div
+                class="lg:sticky lg:top-4 lg:h-[calc(100dvh-2rem)]"
+                :class="mapOpen ? 'max-lg:fixed max-lg:inset-0 max-lg:z-40' : 'max-lg:hidden'"
               >
-                <template #card="{ marker, pinned, close }">
-                  <UCard v-if="placeById.get(marker.id)" :ui="{ body: 'p-3 sm:p-3 max-h-[240px] overflow-y-auto', footer: 'px-3 py-2 sm:px-3' }" class="shadow-xl">
-                    <PlaceInfoCard
-                      :name="placeById.get(marker.id)!.name"
-                      :address="placeById.get(marker.id)!.address"
-                      :category="placeById.get(marker.id)!.category"
-                      :photo-url="placeById.get(marker.id)!.photo_url"
-                      :info="placeById.get(marker.id)!.info"
-                      compact
-                    />
-                    <template #footer>
-                      <div class="flex items-center justify-between gap-2">
-                        <span class="flex items-center gap-1 text-xs font-medium">
-                          <UIcon name="i-lucide-heart" class="size-3.5 text-primary" />
-                          {{ placeById.get(marker.id)!.vote_count }} {{ placeById.get(marker.id)!.vote_count === 1 ? 'voto' : 'votos' }}
-                        </span>
-                        <div v-if="pinned" class="flex gap-1">
-                          <UButton
-                            v-if="canVote"
-                            size="xs"
-                            :color="placeById.get(marker.id)!.voted ? 'success' : 'primary'"
-                            :variant="placeById.get(marker.id)!.voted ? 'soft' : 'solid'"
-                            :icon="placeById.get(marker.id)!.voted ? 'i-lucide-check' : 'i-lucide-heart'"
-                            :loading="busy === marker.id"
-                            @click="toggleVote(placeById.get(marker.id)!)"
-                          >
-                            {{ placeById.get(marker.id)!.voted ? 'Votado' : 'Votar' }}
-                          </UButton>
-                          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" aria-label="Cerrar" @click="close" />
-                        </div>
-                      </div>
-                    </template>
-                  </UCard>
-                </template>
-              </TripMap>
+                <div class="size-full overflow-hidden bg-default lg:rounded-md lg:border lg:border-default">
+                    <TripMap
+                      :markers="placeMarkers"
+                      :selected-id="selectedId"
+                      :highlight-id="hoverId"
+                      @select="selectedId = $event"
+                    >
+                      <template #card="{ marker, pinned, close }">
+                        <UCard v-if="placeById.get(marker.id)" :ui="{ body: 'p-3 sm:p-3 max-h-[240px] overflow-y-auto', footer: 'px-3 py-2 sm:px-3' }" class="shadow-xl">
+                          <PlaceInfoCard
+                            :name="placeById.get(marker.id)!.name"
+                            :address="placeById.get(marker.id)!.address"
+                            :category="placeById.get(marker.id)!.category"
+                            :photo-url="placeById.get(marker.id)!.photo_url"
+                            :info="placeById.get(marker.id)!.info"
+                            compact
+                          />
+                          <template #footer>
+                            <div class="flex items-center justify-between gap-2">
+                              <span class="flex items-center gap-1 text-xs font-medium">
+                                <UIcon name="i-lucide-heart" class="size-3.5 text-primary" />
+                                {{ placeById.get(marker.id)!.vote_count }} {{ placeById.get(marker.id)!.vote_count === 1 ? 'voto' : 'votos' }}
+                              </span>
+                              <div v-if="pinned" class="flex gap-1">
+                                <UButton
+                                  v-if="canVote"
+                                  size="xs"
+                                  :color="placeById.get(marker.id)!.voted ? 'success' : 'primary'"
+                                  :variant="placeById.get(marker.id)!.voted ? 'soft' : 'solid'"
+                                  :icon="placeById.get(marker.id)!.voted ? 'i-lucide-check' : 'i-lucide-heart'"
+                                  :loading="busy === marker.id"
+                                  @click="toggleVote(placeById.get(marker.id)!)"
+                                >
+                                  {{ placeById.get(marker.id)!.voted ? 'Votado' : 'Votar' }}
+                                </UButton>
+                                <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" aria-label="Cerrar" @click="close" />
+                              </div>
+                            </div>
+                          </template>
+                        </UCard>
+                      </template>
+                    </TripMap>
+                </div>
+              </div>
             </div>
 
-            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <article
-                v-for="p in sortedVotable"
-                :key="p.id"
-                class="flex flex-col overflow-hidden rounded-xl bg-default ring-1 transition"
-                :class="[
-                  p.voted ? 'ring-2 ring-success' : 'ring-default',
-                  hoverId === p.id || selectedId === p.id ? 'shadow-lg' : '',
-                ]"
-                @mouseenter="hoverId = p.id"
-                @mouseleave="hoverId = null"
-              >
-                <button type="button" class="relative block h-36 w-full bg-elevated text-left" @click="selectedId = p.id">
-                  <img v-if="p.photo_url" :src="p.photo_url" :alt="p.name" class="size-full object-cover" loading="lazy">
-                  <div v-else class="flex size-full items-center justify-center bg-gradient-to-br from-primary-100 to-primary-200 dark:from-primary-900 dark:to-primary-950">
-                    <UIcon name="i-lucide-map-pin" class="size-10 text-primary/60" />
-                  </div>
-                  <span class="absolute left-2 top-2 flex size-7 items-center justify-center rounded-full border-2 border-white text-xs font-bold text-white shadow" :class="p.voted ? 'bg-success' : 'bg-primary'">
-                    {{ orderOf.get(p.id) }}
-                  </span>
-                  <UBadge v-if="p.in_itinerary && view.itinerary_published" color="neutral" class="absolute right-2 top-2" icon="i-lucide-calendar-check" size="sm">
-                    En el itinerario
-                  </UBadge>
-                </button>
-                <div class="flex flex-1 flex-col p-4">
-                  <h3 class="font-semibold leading-snug">
-                    {{ p.name }}
-                  </h3>
-                  <p v-if="p.address" class="mt-0.5 line-clamp-1 text-xs text-muted">
-                    {{ p.address }}
-                  </p>
-                  <p v-if="p.info?.history" class="mt-2 line-clamp-3 text-sm text-muted">
-                    {{ p.info.history }}
-                  </p>
-                  <p v-else-if="p.description" class="mt-2 line-clamp-3 text-sm text-muted">
-                    {{ p.description }}
-                  </p>
-                  <div class="mt-auto flex items-center justify-between gap-2 pt-4">
-                    <UButton size="sm" color="neutral" variant="link" class="-ml-2.5" @click="detail = p">
-                      Ver ficha
-                    </UButton>
-                    <UButton
-                      v-if="canVote"
-                      size="sm"
-                      :color="p.voted ? 'success' : 'primary'"
-                      :variant="p.voted ? 'soft' : 'outline'"
-                      :icon="p.voted ? 'i-lucide-check' : 'i-lucide-heart'"
-                      :loading="busy === p.id"
-                      :disabled="!!busy && busy !== p.id"
-                      :aria-pressed="p.voted"
-                      @click="toggleVote(p)"
-                    >
-                      {{ p.voted ? 'Votado' : 'Votar' }} · {{ p.vote_count }}
-                    </UButton>
-                    <span v-else class="flex items-center gap-1 text-sm font-medium">
-                      <UIcon name="i-lucide-heart" class="size-4 text-primary" />
-                      {{ p.vote_count }}
-                    </span>
-                  </div>
-                </div>
-              </article>
-            </div>
+            <!-- Arriba cuando el mapa está abierto: abajo va la ficha del lugar seleccionado -->
+            <UButton
+              class="fixed left-1/2 z-50 -translate-x-1/2 rounded-full shadow-lg lg:hidden"
+              :class="mapOpen ? 'top-4' : 'bottom-5'"
+              color="neutral"
+              size="lg"
+              :icon="mapOpen ? 'i-lucide-list' : 'i-lucide-map'"
+              @click="mapOpen = !mapOpen"
+            >
+              {{ mapOpen ? 'Ver lista' : 'Ver mapa' }}
+            </UButton>
           </template>
         </section>
 
@@ -470,21 +461,33 @@ const myBalance = computed(() => bBalances.value.find(b => b.member_id === budge
             icon="i-lucide-calendar-clock"
             title="El itinerario está en preparación"
             description="Quien organiza el viaje lo publicará cuando esté listo. Mientras tanto, vota por los lugares que quieres conocer."
-            class="rounded-lg border border-dashed border-default py-12"
+            class="rounded-md border border-dashed border-default py-12"
           />
           <template v-else>
             <div class="-mx-1 mb-4 flex gap-1.5 overflow-x-auto px-1 pb-1">
-              <UButton
+              <button
+                type="button"
+                class="flex min-w-14 shrink-0 items-center justify-center rounded-md border px-3 py-2 text-sm font-medium transition"
+                :class="itDay === 'all' ? 'border-primary bg-primary text-inverted' : 'border-default bg-default hover:border-primary/50'"
+                :aria-pressed="itDay === 'all'"
+                @click="itDay = 'all'"
+              >
+                Todo
+              </button>
+              <button
                 v-for="c in dayChips"
                 :key="c.value"
-                size="sm"
-                :color="itDay === c.value ? 'primary' : 'neutral'"
-                :variant="itDay === c.value ? 'solid' : 'outline'"
-                class="shrink-0"
+                type="button"
+                class="flex min-w-14 shrink-0 flex-col items-center rounded-md border px-3 py-1.5 transition"
+                :class="itDay === c.value ? 'border-primary bg-primary text-inverted' : 'border-default bg-default hover:border-primary/50'"
+                :aria-pressed="itDay === c.value"
+                :aria-label="c.label"
                 @click="itDay = c.value"
               >
-                {{ c.label }}
-              </UButton>
+                <span class="text-[11px] uppercase tracking-wide opacity-80">{{ c.weekday }}</span>
+                <span class="font-serif text-lg font-semibold leading-none">{{ c.num }}</span>
+                <span class="mt-1 size-1 rounded-full" :class="c.today ? (itDay === c.value ? 'bg-current' : 'bg-primary') : 'bg-transparent'" />
+              </button>
             </div>
             <p class="mb-3 text-xs text-muted">
               Horarios en hora local del destino.
@@ -501,7 +504,7 @@ const myBalance = computed(() => bBalances.value.find(b => b.member_id === budge
                 @focus="itSelected = $event"
               />
               <div class="order-1 lg:order-2">
-                <div class="h-72 overflow-hidden rounded-xl border border-default sm:h-[420px] lg:sticky lg:top-4">
+                <div class="h-72 overflow-hidden rounded-md border border-default sm:h-[420px] lg:sticky lg:top-4">
                   <TripMap
                     :markers="itMarkers"
                     :route="itRoute"
@@ -545,40 +548,40 @@ const myBalance = computed(() => bBalances.value.find(b => b.member_id === budge
             icon="i-lucide-wallet"
             title="El presupuesto está en preparación"
             description="Quien organiza el viaje lo publicará cuando esté listo."
-            class="rounded-lg border border-dashed border-default py-12"
+            class="rounded-md border border-dashed border-default py-12"
           />
           <template v-else>
             <div class="mb-4 grid gap-3 sm:grid-cols-3">
-              <UCard :ui="{ body: 'p-4 sm:p-4' }">
-                <p class="text-xs text-muted">
+              <UCard :ui="{ body: 'p-5 sm:p-6' }">
+                <p class="text-xs font-medium uppercase tracking-wide text-muted">
                   Costo estimado por persona
                 </p>
-                <p class="mt-1 text-xl font-bold">
+                <p class="mt-2 font-serif text-3xl font-semibold">
                   {{ formatMoney(bSummary.perPerson, budget.currency) }}
                 </p>
-                <p class="text-xs text-muted">
+                <p class="mt-1 text-xs text-muted">
                   Total del viaje {{ formatMoney(bSummary.estimated, budget.currency) }}
                 </p>
               </UCard>
-              <UCard :ui="{ body: 'p-4 sm:p-4' }">
-                <p class="text-xs text-muted">
+              <UCard :ui="{ body: 'p-5 sm:p-6' }">
+                <p class="text-xs font-medium uppercase tracking-wide text-muted">
                   Tu parte de lo ya pagado
                 </p>
-                <p class="mt-1 text-xl font-bold">
+                <p class="mt-2 font-serif text-3xl font-semibold">
                   {{ formatMoney(myBalance?.owed ?? 0, budget.currency) }}
                 </p>
-                <p class="text-xs text-muted">
+                <p class="mt-1 text-xs text-muted">
                   Has pagado {{ formatMoney(myBalance?.paid ?? 0, budget.currency) }}
                 </p>
               </UCard>
-              <UCard :ui="{ body: 'p-4 sm:p-4' }">
-                <p class="text-xs text-muted">
+              <UCard :ui="{ body: 'p-5 sm:p-6' }">
+                <p class="text-xs font-medium uppercase tracking-wide text-muted">
                   Tu saldo
                 </p>
-                <p class="mt-1 text-xl font-bold" :class="(myBalance?.balance ?? 0) > 0 ? 'text-success' : (myBalance?.balance ?? 0) < 0 ? 'text-error' : ''">
+                <p class="mt-2 font-serif text-3xl font-semibold" :class="(myBalance?.balance ?? 0) > 0 ? 'text-success' : (myBalance?.balance ?? 0) < 0 ? 'text-error' : ''">
                   {{ formatMoney(Math.abs(myBalance?.balance ?? 0), budget.currency) }}
                 </p>
-                <p class="text-xs text-muted">
+                <p class="mt-1 text-xs text-muted">
                   {{ (myBalance?.balance ?? 0) > 0 ? 'Te deben' : (myBalance?.balance ?? 0) < 0 ? 'Debes' : 'Estás a mano' }}
                 </p>
               </UCard>
@@ -588,7 +591,7 @@ const myBalance = computed(() => bBalances.value.find(b => b.member_id === budge
               v-if="!budget.items.length"
               icon="i-lucide-wallet"
               title="Aún no hay ítems en el presupuesto"
-              class="rounded-lg border border-dashed border-default py-10"
+              class="rounded-md border border-dashed border-default py-10"
             />
             <template v-else>
               <UAlert
@@ -611,7 +614,7 @@ const myBalance = computed(() => bBalances.value.find(b => b.member_id === budge
 
             <UCard class="mt-4">
               <template #header>
-                <h3 class="font-semibold">
+                <h3 class="font-serif text-lg font-semibold">
                   Cuentas del grupo
                 </h3>
               </template>
