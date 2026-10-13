@@ -273,6 +273,21 @@ begin
 end;
 $$;
 
+-- Un archivo que algún lugar del catálogo todavía muestra no se toca: los
+-- flujos legítimos mueven la referencia (photo_path) antes de borrar el viejo.
+create or replace function public.storage_photo_unreferenced(p_name text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select not exists (select 1 from public.catalog_places c where c.photo_path = p_name);
+$$;
+
+revoke all on function public.storage_photo_unreferenced(text) from public, anon;
+grant execute on function public.storage_photo_unreferenced(text) to authenticated;
+
 drop policy place_photos_insert on storage.objects;
 drop policy place_photos_update on storage.objects;
 drop policy place_photos_delete on storage.objects;
@@ -296,6 +311,7 @@ create policy place_photos_update on storage.objects
       public.is_trip_admin(public.storage_trip_id(name))
       or public.catalog_place_editable(public.storage_catalog_place_id(name))
     )
+    and public.storage_photo_unreferenced(name)
   )
   with check (
     bucket_id = 'place-photos'
@@ -303,6 +319,7 @@ create policy place_photos_update on storage.objects
       public.is_trip_admin(public.storage_trip_id(name))
       or public.catalog_place_editable(public.storage_catalog_place_id(name))
     )
+    and public.storage_photo_unreferenced(name)
   );
 
 create policy place_photos_delete on storage.objects
@@ -313,6 +330,7 @@ create policy place_photos_delete on storage.objects
       public.is_trip_admin(public.storage_trip_id(name))
       or public.catalog_place_editable(public.storage_catalog_place_id(name))
     )
+    and public.storage_photo_unreferenced(name)
   );
 
 create policy place_photos_select on storage.objects

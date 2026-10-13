@@ -326,7 +326,9 @@ check('la búsqueda encuentra por nombre sin distinguir mayúsculas', (await sea
 check('la búsqueda no lista lo que el viaje ya tiene', !(await search(A, 'namsan', trip.id)).includes(cTorre))
 check('con menos de 2 caracteres no devuelve nada', (await search(C, 'n', otherTrip.id)).length === 0)
 check('los comodines del texto se buscan literales', (await search(C, '%%', otherTrip.id)).length === 0 && (await search(C, '__', otherTrip.id)).length === 0)
-check('la búsqueda devuelve como máximo 5', (await search(C, 'a', null)).length <= 5)
+for (let i = 1; i <= 6; i++) await addPlace(C, otherTrip.id, { name: `Zzlim ${i}`, latitude: 10 + i, longitude: 20 + i })
+check('la búsqueda devuelve como máximo 5', (await search(C, 'zzlim', null)).length === 5)
+check('p_limit mayor de 5 se recorta a 5', (await as('authenticated', C, 'select id from public.catalog_search($1, null, null, null, 100)', ['zzlim'])).rows.length === 5)
 const near = async (lat, lng) => (await as('authenticated', C, 'select id from public.catalog_near($1, $2, 100, $3)', [lat, lng, otherTrip.id])).rows.map(r => r.id)
 check('cercanía: a unos metros lo encuentra', (await near(37.5513, 126.9883)).includes(cTorre))
 check('cercanía: a más de 100 m no', !(await near(37.5612, 126.9882)).includes(cTorre))
@@ -338,6 +340,23 @@ check('trip_covers entrega la foto de mis viajes', (await covers(A)).find(r => r
 check('trip_covers no muestra viajes ajenos', !(await covers(C)).some(r => r.trip_id === trip.id))
 check('el creador sube foto a su lugar', !(await err('authenticated', B, `insert into storage.objects (bucket_id, name) values ('place-photos', $1)`, [`catalog/${cTorre}/a.webp`])))
 check('otro organizador no sube foto a un lugar ajeno', /row-level security/.test(await err('authenticated', C, `insert into storage.objects (bucket_id, name) values ('place-photos', $1)`, [`catalog/${cTorre}/x.webp`])))
+
+// Un archivo que un lugar del catálogo muestra no se borra ni se sobrescribe
+const oldPath = `${trip.id}/vieja.webp`
+const objExists = async name => (await db.query(`select count(*)::int n from storage.objects where name = $1`, [name])).rows[0].n
+const delObj = async (uid, name) => (await as('authenticated', uid, `delete from storage.objects where bucket_id = 'place-photos' and name = $1 returning id`, [name])).rows.length
+const renObj = async (uid, name) => (await as('authenticated', uid, `update storage.objects set name = name || '.x' where bucket_id = 'place-photos' and name = $1 returning id`, [name])).rows.length
+const oldPlaceRef = await addPlace(A, trip.id, { name: 'Foto antigua', latitude: 3, longitude: 3 })
+await db.query(`insert into storage.objects (bucket_id, name) values ('place-photos', $1)`, [oldPath])
+await db.query(`update public.catalog_places set photo_path = $2 where id = $1`, [oldPlaceRef.catalog_place_id, oldPath])
+check('ruta antigua referenciada: el admin del viaje no la borra', (await delObj(A, oldPath)) === 0 && (await objExists(oldPath)) === 1)
+check('ruta antigua referenciada: el admin del viaje no la renombra', (await renObj(A, oldPath)) === 0 && (await objExists(oldPath)) === 1)
+await db.query(`update public.catalog_places set photo_path = null where id = $1`, [oldPlaceRef.catalog_place_id])
+check('sin referencia, el admin del viaje sí borra el archivo antiguo', (await delObj(A, oldPath)) === 1 && (await objExists(oldPath)) === 0)
+check('catalog/: el creador no borra la foto que su lugar muestra', (await delObj(B, `catalog/${cTorre}/a.webp`)) === 0 && (await objExists(`catalog/${cTorre}/a.webp`)) === 1)
+check('catalog/: el creador no la renombra mientras se muestra', (await renObj(B, `catalog/${cTorre}/a.webp`)) === 0 && (await objExists(`catalog/${cTorre}/a.webp`)) === 1)
+await db.query(`update public.catalog_places set photo_path = null where id = $1`, [cTorre])
+check('catalog/: sin referencia, el creador sí la borra', (await delObj(B, `catalog/${cTorre}/a.webp`)) === 1)
 
 console.log('\nStorage')
 check('B sube foto a su viaje', !(await err('authenticated', B, `insert into storage.objects (bucket_id, name) values ('place-photos', $1)`, [`${trip.id}/a.webp`])))
