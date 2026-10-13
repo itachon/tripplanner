@@ -81,6 +81,12 @@ const list = computed(() => {
   return arr
 })
 
+// La lista separa lo que está en votación de lo guardado fuera de ella (punto celeste en el mapa)
+const groups = computed(() => [
+  { key: 'in', title: null, items: list.value.filter(x => x.votable) },
+  { key: 'out', title: 'Guardados, fuera de la votación', items: list.value.filter(x => !x.votable) },
+].filter(g => g.items.length))
+
 const markers = computed<MapMarker[]>(() => places.value.map(p => ({
   id: p.id,
   latitude: p.latitude,
@@ -196,7 +202,11 @@ function menu(p: Place): DropdownMenuItem[][] {
       { label: 'Mover arriba', icon: 'i-lucide-arrow-up', disabled: idx <= 0, onSelect: () => move(p, -1) },
       { label: 'Mover abajo', icon: 'i-lucide-arrow-down', disabled: idx === places.value.length - 1, onSelect: () => move(p, 1) },
     ],
-    [{ label: 'Borrar', icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => { deleteTarget.value = p } }],
+    // Un lugar en votación primero sale de ella (queda guardado, en celeste); el borrado
+    // definitivo solo está disponible cuando ya está fuera.
+    p.votable
+      ? [{ label: 'Quitar de la votación', icon: 'i-lucide-circle-minus', onSelect: () => { toggleVotable(p) } }]
+      : [{ label: 'Borrar definitivamente', icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => { deleteTarget.value = p } }],
   ]
 }
 
@@ -325,76 +335,75 @@ function showDetail(p: Place) {
         <p class="text-xs text-muted">
           {{ stats.places }} lugares · {{ stats.votable }} en votación · {{ stats.votes }} votos
         </p>
-        <ul class="divide-y divide-default overflow-hidden rounded-lg border border-default bg-default">
-          <li
-            v-for="p in list"
-            :key="p.id"
-            class="flex cursor-pointer items-start gap-3 px-3 py-2.5 transition"
-            :class="selectedId === p.id ? 'bg-primary/5' : 'hover:bg-elevated/60'"
-            @mouseenter="hoverId = p.id"
-            @mouseleave="hoverId = null"
-            @click="selectFromList(p)"
-          >
-            <span
-              class="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
-              :class="p.votable ? 'bg-primary text-inverted' : 'bg-sky-300 text-sky-950'"
-            >{{ numberOf.get(p.id) }}</span>
-            <div class="min-w-0 flex-1">
-              <p class="truncate font-medium leading-snug">
-                {{ p.name }}
-              </p>
-              <p v-if="p.address" class="truncate text-xs text-muted">
-                {{ p.address }}
-              </p>
-              <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
-                <UBadge v-if="p.votable" :color="votesOf(p.id) ? 'primary' : 'neutral'" variant="subtle" size="sm" icon="i-lucide-heart">
-                  {{ votesOf(p.id) }}
-                </UBadge>
-                <UBadge v-else color="neutral" variant="outline" size="sm">
-                  No votable
-                </UBadge>
-                <UBadge v-if="stopsByPlace.get(p.id)?.length" color="success" variant="subtle" size="sm" icon="i-lucide-calendar-check">
-                  En itinerario
-                </UBadge>
-                <UTooltip v-if="enriching.has(p.id)" text="Buscando info del lugar">
-                  <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
-                </UTooltip>
-                <UTooltip v-else-if="placeInfoByPlace.get(p.id)" text="Tiene info automática">
-                  <UIcon name="i-lucide-info" class="size-4 text-primary" />
-                </UTooltip>
+        <template v-for="g in groups" :key="g.key">
+          <div v-if="g.title" class="pt-2">
+            <p class="text-sm font-semibold">
+              {{ g.title }}
+            </p>
+            <p class="text-xs text-muted">
+              Siguen en el mapa como puntos celestes. Puedes volver a ponerlos en votación o borrarlos.
+            </p>
+          </div>
+          <ul class="divide-y divide-default overflow-hidden rounded-lg border border-default bg-default">
+            <li
+              v-for="p in g.items"
+              :key="p.id"
+              class="flex cursor-pointer items-start gap-3 px-3 py-2.5 transition"
+              :class="selectedId === p.id ? 'bg-primary/5' : 'hover:bg-elevated/60'"
+              @mouseenter="hoverId = p.id"
+              @mouseleave="hoverId = null"
+              @click="selectFromList(p)"
+            >
+              <span
+                class="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
+                :class="p.votable ? 'bg-primary text-inverted' : 'bg-sky-300 text-sky-950'"
+              >{{ numberOf.get(p.id) }}</span>
+              <div class="min-w-0 flex-1">
+                <p class="truncate font-medium leading-snug">
+                  {{ p.name }}
+                </p>
+                <p v-if="p.address" class="truncate text-xs text-muted">
+                  {{ p.address }}
+                </p>
+                <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <UBadge v-if="p.votable" :color="votesOf(p.id) ? 'primary' : 'neutral'" variant="subtle" size="sm" icon="i-lucide-heart">
+                    {{ votesOf(p.id) }}
+                  </UBadge>
+                  <UBadge v-else color="neutral" variant="outline" size="sm">
+                    No votable
+                  </UBadge>
+                  <UBadge v-if="stopsByPlace.get(p.id)?.length" color="success" variant="subtle" size="sm" icon="i-lucide-calendar-check">
+                    En itinerario
+                  </UBadge>
+                  <UTooltip v-if="enriching.has(p.id)" text="Buscando info del lugar">
+                    <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
+                  </UTooltip>
+                  <UTooltip v-else-if="placeInfoByPlace.get(p.id)" text="Tiene info automática">
+                    <UIcon name="i-lucide-info" class="size-4 text-primary" />
+                  </UTooltip>
+                </div>
+                <p v-if="votersByPlace.get(p.id)?.length" class="mt-1 line-clamp-2 text-xs text-muted" data-testid="voters">
+                  Votaron: {{ votersByPlace.get(p.id)!.map(m => m.name).join(', ') }}
+                </p>
               </div>
-              <p v-if="votersByPlace.get(p.id)?.length" class="mt-1 line-clamp-2 text-xs text-muted" data-testid="voters">
-                Votaron: {{ votersByPlace.get(p.id)!.map(m => m.name).join(', ') }}
-              </p>
-            </div>
-            <div class="flex shrink-0 items-center gap-0.5" @click.stop>
-              <UButton
-                v-if="!p.votable"
-                size="xs"
-                variant="soft"
-                icon="i-lucide-circle-plus"
-                :loading="toggling === p.id"
-                @click="toggleVotable(p)"
-              >
-                Poner en votación
-              </UButton>
-              <UTooltip v-else text="Quitar de la votación">
+              <div class="flex shrink-0 items-center gap-0.5" @click.stop>
                 <UButton
-                  size="sm"
-                  color="neutral"
-                  variant="ghost"
-                  icon="i-lucide-circle-minus"
-                  aria-label="Quitar de la votación"
+                  v-if="!p.votable"
+                  size="xs"
+                  variant="soft"
+                  icon="i-lucide-circle-plus"
                   :loading="toggling === p.id"
                   @click="toggleVotable(p)"
-                />
-              </UTooltip>
-              <UDropdownMenu :items="menu(p)" :content="{ align: 'end' }">
-                <UButton icon="i-lucide-ellipsis-vertical" color="neutral" variant="ghost" size="sm" aria-label="Acciones" />
-              </UDropdownMenu>
-            </div>
-          </li>
-        </ul>
+                >
+                  Poner en votación
+                </UButton>
+                <UDropdownMenu :items="menu(p)" :content="{ align: 'end' }">
+                  <UButton icon="i-lucide-ellipsis-vertical" color="neutral" variant="ghost" size="sm" aria-label="Acciones" />
+                </UDropdownMenu>
+              </div>
+            </li>
+          </ul>
+        </template>
       </template>
     </div>
 
@@ -447,7 +456,7 @@ function showDetail(p: Place) {
       v-model:open="deleteOpen"
       :title="`¿Borrar ${deleteTarget?.name}?`"
       :description="deleteWarning"
-      confirm-label="Borrar"
+      confirm-label="Borrar definitivamente"
       :loading="busy"
       @confirm="confirmDelete"
     />
