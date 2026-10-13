@@ -68,15 +68,15 @@ const showPhoto = computed(() => !!props.photoUrl && !failed.value)
       </div>
       <component
         :is="size === 'card' ? 'h3' : 'h1'"
-        class="font-serif font-semibold leading-tight text-balance"
+        class="font-serif font-semibold leading-tight text-balance break-words"
         :class="SIZES[size].title"
       >
         {{ name }}
       </component>
       <p v-if="destination || dateRange" class="flex flex-wrap gap-x-4 gap-y-1 text-white/85" :class="SIZES[size].meta">
-        <span v-if="destination" class="flex items-center gap-1.5">
+        <span v-if="destination" class="flex min-w-0 max-w-full items-center gap-1.5">
           <UIcon name="i-lucide-globe" class="size-4 shrink-0" />
-          {{ destination }}
+          <span :class="size === 'card' ? 'truncate' : ''">{{ destination }}</span>
         </span>
         <span v-if="dateRange" class="flex items-center gap-1.5">
           <UIcon name="i-lucide-calendar-range" class="size-4 shrink-0" />

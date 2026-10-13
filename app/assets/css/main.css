@@ -48,12 +48,15 @@
   /* paso 600: el texto blanco de los botones cumple contraste AA */
   --ui-primary: var(--ui-color-primary-600);
   --ui-success: var(--ui-color-success-600);
+  /* stone-500 sobre el crema queda bajo AA (4.45:1) */
+  --ui-text-muted: var(--ui-color-neutral-600);
   --app-canvas: #faf6ef;
 }
 
 .dark {
   --ui-primary: var(--ui-color-primary-400);
   --ui-success: var(--ui-color-success-400);
+  --ui-text-muted: var(--ui-color-neutral-400);
   --app-canvas: var(--ui-color-neutral-950);
 }
 

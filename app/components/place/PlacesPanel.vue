@@ -319,8 +319,8 @@ function showDetail(p: Place) {
             @click="selectFromList(p)"
           >
             <span
-              class="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
-              :class="p.votable ? 'bg-primary' : 'bg-neutral-500'"
+              class="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
+              :class="p.votable ? 'bg-primary text-inverted' : 'bg-neutral-600 text-white'"
             >{{ numberOf.get(p.id) }}</span>
             <div class="min-w-0 flex-1">
               <p class="truncate font-medium leading-snug">

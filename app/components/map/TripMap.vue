@@ -56,6 +56,7 @@ let pendingMarker: MapboxMarker | null = null
 let mapboxgl: typeof import('mapbox-gl').default | null = null
 let resizeObs: ResizeObserver | null = null
 let lastSize = { w: 0, h: 0 }
+let fitted = false
 let lastSelectedByMe: string | null = null
 
 const activeId = computed(() => hoveredId.value ?? pinnedId.value)
@@ -141,6 +142,7 @@ function fit(animate = true) {
   const m = map.value
   if (!m || !mapboxgl || !props.markers.length) return
   if (!m.getContainer().clientWidth) return
+  fitted = true
   if (props.markers.length === 1) {
     const p = props.markers[0]!
     m.easeTo({ center: [p.longitude, p.latitude], zoom: 14, duration: animate ? 600 : 0 })
@@ -293,7 +295,9 @@ onMounted(async () => {
     syncPendingPin()
     fit(false)
 
-    // La pestaña puede estar oculta al crear el mapa: al hacerse visible, reencuadrar
+    // El mapa puede estar oculto al crearse (otra pestaña, lista en celular). Al mostrarse:
+    // centrar en el lugar fijado si lo hay; si no, encuadrar todo solo la primera vez,
+    // para no perder el zoom del usuario en cada ida y vuelta.
     resizeObs = new ResizeObserver(() => {
       const el = container.value
       if (!el) return
@@ -302,7 +306,11 @@ onMounted(async () => {
       const wasHidden = !lastSize.w || !lastSize.h
       lastSize = size
       m.resize()
-      if (wasHidden) fit(false)
+      if (wasHidden) {
+        const mk = props.markers.find(x => x.id === pinnedId.value)
+        if (mk) m.jumpTo({ center: [mk.longitude, mk.latitude], zoom: Math.max(m.getZoom(), 13) })
+        else if (!fitted) fit(false)
+      }
       updateCardPos()
     })
     resizeObs.observe(container.value)

@@ -19,9 +19,13 @@ if (!error.value && !trip.value) {
 
 const editOpen = ref(false)
 
-// Misma portada que ve el viajero: el lugar más votado que tenga foto
+// Misma portada que ve el viajero: el lugar más votado que tenga foto, entre los
+// lugares que el viajero recibe (votables o en el itinerario publicado)
 const photoUrl = usePlacePhotoUrl()
-const coverUrl = computed(() => coverPhoto(ctx.places.value.map(p => ({
+const memberPlaces = computed(() => ctx.places.value.filter(p =>
+  p.votable || (!!trip.value?.itinerary_published && ctx.stopsByPlace.value.has(p.id)),
+))
+const coverUrl = computed(() => coverPhoto(memberPlaces.value.map(p => ({
   photo_url: photoUrl(p.photo_path),
   info: ctx.placeInfoByPlace.value.get(p.id),
   vote_count: ctx.votersByPlace.value.get(p.id)?.length ?? 0,

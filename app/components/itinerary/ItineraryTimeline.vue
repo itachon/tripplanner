@@ -77,7 +77,7 @@ function timeRange(it: TimelineItem) {
         >
           <span
             v-if="it.number"
-            class="relative z-10 flex size-[30px] shrink-0 items-center justify-center rounded-full border-2 border-default bg-primary text-xs font-bold text-white"
+            class="relative z-10 flex size-[30px] shrink-0 items-center justify-center rounded-full border-2 border-default bg-primary text-xs font-bold text-inverted"
           >{{ it.number }}</span>
           <span
             v-else

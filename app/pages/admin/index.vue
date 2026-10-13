@@ -4,12 +4,11 @@ import type { Tables } from '~~/shared/types/database.types'
 definePageMeta({ layout: 'admin' })
 useHead({ title: 'Mis viajes' })
 
-type CoverPlace = { id: string, photo_path: string | null, sort_order: number, created_at: string }
 type TripRow = Tables<'trips'> & {
   members: { count: number }[]
   places: { count: number }[]
-  cover_places: CoverPlace[]
-  cover_info: { place_id: string, photo_url: string | null }[]
+  cover_places: { photo_path: string | null }[]
+  cover_info: { photo_url: string | null }[]
 }
 
 const { client, userId } = useDb()
@@ -19,17 +18,26 @@ const createOpen = ref(false)
 const { data: trips, status } = await useAsyncData('admin-trips', async () => {
   const { data, error } = await client
     .from('trips')
-    .select('*, members(count), places(count), cover_places:places(id, photo_path, sort_order, created_at), cover_info:place_info(place_id, photo_url)')
+    .select('*, members(count), places(count), cover_places:places(photo_path), cover_info:place_info(photo_url)')
+    // Por viaje, una sola fila de cada uno: el primer lugar con foto subida y una foto de ficha
+    .not('cover_places.photo_path', 'is', null)
+    .order('sort_order', { referencedTable: 'cover_places' })
+    .order('created_at', { referencedTable: 'cover_places' })
+    .limit(1, { referencedTable: 'cover_places' })
+    .not('cover_info.photo_url', 'is', null)
+    .order('created_at', { referencedTable: 'cover_info' })
+    .limit(1, { referencedTable: 'cover_info' })
     .order('start_date', { ascending: true })
   if (error) throw error
   return data as unknown as TripRow[]
 })
 
-/** Portada de un viaje: el primer lugar, en el orden del organizador, que tenga foto */
+/** Portada de un viaje: la primera foto subida, en el orden del organizador; si no hay, una de las fichas */
 function coverOf(t: TripRow) {
-  const info = new Map(t.cover_info.map(i => [i.place_id, i]))
-  const ordered = [...t.cover_places].sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at))
-  return coverPhoto(ordered.map(p => ({ photo_url: photoUrl(p.photo_path), info: info.get(p.id) })))
+  return coverPhoto([
+    { photo_url: photoUrl(t.cover_places[0]?.photo_path) },
+    { photo_url: t.cover_info[0]?.photo_url },
+  ])
 }
 
 const upcoming = computed(() => (trips.value ?? []).filter(t => todayIn(t.time_zone) <= t.end_date))
