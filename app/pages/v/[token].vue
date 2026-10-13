@@ -25,8 +25,7 @@ const tz = computed(() => trip.value?.time_zone ?? 'UTC')
 const busy = ref<string | null>(null)
 const declineOpen = ref(false)
 type Tab = 'lugares' | 'itinerario' | 'presupuesto'
-// Se abre en la primera pestaña que ya tiene contenido: itinerario, presupuesto y, si no, lugares
-const tab = ref<Tab>(view.value?.itinerary_published ? 'itinerario' : view.value?.budget_published ? 'presupuesto' : 'lugares')
+const tab = ref<Tab>('itinerario')
 function setTab(v: string | number) {
   tab.value = v as Tab
 }
