@@ -57,7 +57,7 @@ export function dayChipParts(day: string): { weekday: string, num: string } {
   }
 }
 
-/** "10 al 20 de abril de 2027" /"28 de marzo al 3 de abril de 2027" */
+/** "10 al 20 de abril de 2027" / "28 de marzo al 3 de abril de 2027" */
 export function formatDateRange(start: string, end: string): string {
   const a = dayToDate(start)
   const b = dayToDate(end)

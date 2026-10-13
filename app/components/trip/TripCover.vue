@@ -60,7 +60,7 @@ const showPhoto = computed(() => !!props.photoUrl && !failed.value)
       :loading="size === 'full' ? 'eager' : 'lazy'"
       @error="failed = true"
     >
-    <div v-if="showPhoto" class="absolute inset-0 -z-10 bg-gradient-to-t from-black/80 via-black/35 to-black/10" />
+    <div v-if="showPhoto" class="absolute inset-0 -z-10 bg-gradient-to-t from-black/80 via-black/45 to-black/35" />
 
     <div :class="SIZES[size].inner">
       <div v-if="$slots.eyebrow" class="mb-3 flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-widest text-white/90">

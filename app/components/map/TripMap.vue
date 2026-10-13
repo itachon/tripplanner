@@ -15,6 +15,8 @@ const props = withDefaults(defineProps<{
   pendingPin?: { latitude: number, longitude: number } | null
   /** cambia este valor para volver a encuadrar todos los puntos */
   fitKey?: string | number
+  /** pide dos dedos (o Ctrl + rueda) para mover el mapa; se apaga cuando el mapa ocupa toda la pantalla */
+  cooperative?: boolean
 }>(), {
   selectedId: null,
   highlightId: null,
@@ -22,6 +24,7 @@ const props = withDefaults(defineProps<{
   picking: false,
   pendingPin: null,
   fitKey: 0,
+  cooperative: true,
 })
 
 const emit = defineEmits<{
@@ -60,10 +63,10 @@ const activeMarker = computed(() => props.markers.find(m => m.id === activeId.va
 const isPinned = computed(() => !!pinnedId.value && activeId.value === pinnedId.value)
 
 const TONES: Record<NonNullable<MapMarker['tone']>, string> = {
-  primary: 'bg-primary',
-  success: 'bg-success',
-  neutral: 'bg-neutral-500',
-  warning: 'bg-warning',
+  primary: 'bg-primary text-inverted',
+  success: 'bg-success text-inverted',
+  neutral: 'bg-neutral-600 text-white',
+  warning: 'bg-warning text-white',
 }
 
 // El estilo va en un círculo interior: el <button> exterior es de Mapbox, que
@@ -73,7 +76,7 @@ function markerClass(m: MapMarker) {
   const active = m.id === activeId.value || m.id === props.highlightId
   return [
     'trip-marker flex items-center justify-center rounded-full border-2 border-white shadow-md',
-    'size-8 text-xs font-bold text-inverted transition-[scale,box-shadow] duration-150',
+    'size-8 text-xs font-bold transition-[scale,box-shadow] duration-150',
     TONES[m.tone ?? 'primary'],
     m.dimmed && !active ? 'opacity-55' : '',
     active ? 'scale-125 ring-4 ring-primary/35' : 'group-hover:scale-110',
@@ -201,6 +204,8 @@ function syncPendingPin() {
   pendingMarker.setLngLat([p.longitude, p.latitude]).addTo(map.value)
 }
 
+watch(() => props.cooperative, (on) => { map.value?.setCooperativeGestures(on) })
+
 function close() {
   pinnedId.value = null
   hoveredId.value = null
@@ -257,7 +262,7 @@ onMounted(async () => {
       style: 'mapbox://styles/mapbox/streets-v12',
       center: [-70.65, -33.45],
       zoom: 1.5,
-      cooperativeGestures: true,
+      cooperativeGestures: props.cooperative,
       attributionControl: true,
     })
     // Español primero; si una etiqueta no tiene traducción, usa inglés (alfabeto latino)

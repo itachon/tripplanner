@@ -40,10 +40,18 @@ const mapOpen = ref(false)
 watch(tab, () => { mapOpen.value = false })
 useHead({ bodyAttrs: { class: () => mapOpen.value ? 'max-lg:overflow-hidden' : '' } })
 
+// Solo se usa en manejadores de clic y al montar: nunca durante el render del servidor
+const isDesktop = () => window.matchMedia('(min-width: 1024px)').matches
 function showOnMap(id: string) {
   selectedId.value = id
-  mapOpen.value = true
+  if (!isDesktop()) mapOpen.value = true
 }
+// Si la ventana pasa a escritorio con el mapa abierto, vuelve al mapa lateral
+function closeMapOnDesktop() {
+  if (isDesktop()) mapOpen.value = false
+}
+onMounted(() => window.addEventListener('resize', closeMapOnDesktop))
+onBeforeUnmount(() => window.removeEventListener('resize', closeMapOnDesktop))
 
 // ---------- SEO / vista previa en WhatsApp ----------
 useSeoMeta({
@@ -395,47 +403,48 @@ const myBalance = computed(() => bBalances.value.find(b => b.member_id === budge
                 :class="mapOpen ? 'max-lg:fixed max-lg:inset-0 max-lg:z-40' : 'max-lg:hidden'"
               >
                 <div class="size-full overflow-hidden bg-default lg:rounded-md lg:border lg:border-default">
-                    <TripMap
-                      :markers="placeMarkers"
-                      :selected-id="selectedId"
-                      :highlight-id="hoverId"
-                      @select="selectedId = $event"
-                    >
-                      <template #card="{ marker, pinned, close }">
-                        <UCard v-if="placeById.get(marker.id)" :ui="{ body: 'p-3 sm:p-3 max-h-[240px] overflow-y-auto', footer: 'px-3 py-2 sm:px-3' }" class="shadow-xl">
-                          <PlaceInfoCard
-                            :name="placeById.get(marker.id)!.name"
-                            :address="placeById.get(marker.id)!.address"
-                            :category="placeById.get(marker.id)!.category"
-                            :photo-url="placeById.get(marker.id)!.photo_url"
-                            :info="placeById.get(marker.id)!.info"
-                            compact
-                          />
-                          <template #footer>
-                            <div class="flex items-center justify-between gap-2">
-                              <span class="flex items-center gap-1 text-xs font-medium">
-                                <UIcon name="i-lucide-heart" class="size-3.5 text-primary" />
-                                {{ placeById.get(marker.id)!.vote_count }} {{ placeById.get(marker.id)!.vote_count === 1 ? 'voto' : 'votos' }}
-                              </span>
-                              <div v-if="pinned" class="flex gap-1">
-                                <UButton
-                                  v-if="canVote"
-                                  size="xs"
-                                  :color="placeById.get(marker.id)!.voted ? 'success' : 'primary'"
-                                  :variant="placeById.get(marker.id)!.voted ? 'soft' : 'solid'"
-                                  :icon="placeById.get(marker.id)!.voted ? 'i-lucide-check' : 'i-lucide-heart'"
-                                  :loading="busy === marker.id"
-                                  @click="toggleVote(placeById.get(marker.id)!)"
-                                >
-                                  {{ placeById.get(marker.id)!.voted ? 'Votado' : 'Votar' }}
-                                </UButton>
-                                <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" aria-label="Cerrar" @click="close" />
-                              </div>
+                  <TripMap
+                    :markers="placeMarkers"
+                    :selected-id="selectedId"
+                    :highlight-id="hoverId"
+                    :cooperative="!mapOpen"
+                    @select="selectedId = $event"
+                  >
+                    <template #card="{ marker, pinned, close }">
+                      <UCard v-if="placeById.get(marker.id)" :ui="{ body: 'p-3 sm:p-3 max-h-[240px] overflow-y-auto', footer: 'px-3 py-2 sm:px-3' }" class="shadow-xl">
+                        <PlaceInfoCard
+                          :name="placeById.get(marker.id)!.name"
+                          :address="placeById.get(marker.id)!.address"
+                          :category="placeById.get(marker.id)!.category"
+                          :photo-url="placeById.get(marker.id)!.photo_url"
+                          :info="placeById.get(marker.id)!.info"
+                          compact
+                        />
+                        <template #footer>
+                          <div class="flex items-center justify-between gap-2">
+                            <span class="flex items-center gap-1 text-xs font-medium">
+                              <UIcon name="i-lucide-heart" class="size-3.5 text-primary" />
+                              {{ placeById.get(marker.id)!.vote_count }} {{ placeById.get(marker.id)!.vote_count === 1 ? 'voto' : 'votos' }}
+                            </span>
+                            <div v-if="pinned" class="flex gap-1">
+                              <UButton
+                                v-if="canVote"
+                                size="xs"
+                                :color="placeById.get(marker.id)!.voted ? 'success' : 'primary'"
+                                :variant="placeById.get(marker.id)!.voted ? 'soft' : 'solid'"
+                                :icon="placeById.get(marker.id)!.voted ? 'i-lucide-check' : 'i-lucide-heart'"
+                                :loading="busy === marker.id"
+                                @click="toggleVote(placeById.get(marker.id)!)"
+                              >
+                                {{ placeById.get(marker.id)!.voted ? 'Votado' : 'Votar' }}
+                              </UButton>
+                              <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" aria-label="Cerrar" @click="close" />
                             </div>
-                          </template>
-                        </UCard>
-                      </template>
-                    </TripMap>
+                          </div>
+                        </template>
+                      </UCard>
+                    </template>
+                  </TripMap>
                 </div>
               </div>
             </div>
