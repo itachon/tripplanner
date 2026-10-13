@@ -60,7 +60,7 @@ async function nativeShare() {
     <template #body>
       <div v-if="member" class="space-y-5">
         <div class="flex justify-center">
-          <div class="rounded-xl bg-white p-3 shadow-sm ring-1 ring-default">
+          <div class="rounded-md bg-white p-3 shadow-sm ring-1 ring-default">
             <img v-if="qrDataUrl" :src="qrDataUrl" alt="Código QR del viaje" class="size-56">
             <USkeleton v-else class="size-56" />
           </div>

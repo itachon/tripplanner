@@ -75,7 +75,7 @@ const samplePlaces = [
             class="flex items-center gap-3 rounded-md bg-default p-3 shadow-lg ring ring-default"
           >
             <span
-              class="flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+              class="flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-inverted"
               :class="p.voted ? 'bg-success' : 'bg-primary'"
             >
               {{ p.n }}

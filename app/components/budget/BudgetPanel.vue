@@ -157,7 +157,7 @@ onMounted(() => {
           <p class="text-xs text-muted">
             Total estimado
           </p>
-          <p class="mt-1 text-xl font-bold">
+          <p class="mt-1 font-serif text-2xl font-semibold">
             {{ formatMoney(budgetSummary.estimated, baseCurrency) }}
           </p>
         </UCard>
@@ -165,7 +165,7 @@ onMounted(() => {
           <p class="text-xs text-muted">
             Gastado hasta ahora
           </p>
-          <p class="mt-1 text-xl font-bold">
+          <p class="mt-1 font-serif text-2xl font-semibold">
             {{ formatMoney(budgetSummary.actual, baseCurrency) }}
           </p>
         </UCard>
@@ -173,7 +173,7 @@ onMounted(() => {
           <p class="text-xs text-muted">
             Diferencia en lo ya pagado
           </p>
-          <p class="mt-1 text-xl font-bold" :class="budgetSummary.variance > 0 ? 'text-error' : budgetSummary.variance < 0 ? 'text-success' : ''">
+          <p class="mt-1 font-serif text-2xl font-semibold" :class="budgetSummary.variance > 0 ? 'text-error' : budgetSummary.variance < 0 ? 'text-success' : ''">
             {{ budgetSummary.variance > 0 ? '+' : '' }}{{ formatMoney(budgetSummary.variance, baseCurrency) }}
           </p>
           <p class="text-xs text-muted">
@@ -184,7 +184,7 @@ onMounted(() => {
           <p class="text-xs text-muted">
             Estimado por persona
           </p>
-          <p class="mt-1 text-xl font-bold">
+          <p class="mt-1 font-serif text-2xl font-semibold">
             {{ formatMoney(budgetSummary.perPerson, baseCurrency) }}
           </p>
           <p class="text-xs text-muted">

@@ -60,7 +60,7 @@ const photo = computed(() => failed.value ? null : source.value)
       </button>
 
       <span
-        class="pointer-events-none absolute left-2 top-2 flex size-7 items-center justify-center rounded-full border-2 border-white text-xs font-bold text-white shadow"
+        class="pointer-events-none absolute left-2 top-2 flex size-7 items-center justify-center rounded-full border-2 border-white text-xs font-bold text-inverted shadow"
         :class="place.voted ? 'bg-success' : 'bg-primary'"
       >
         {{ order }}

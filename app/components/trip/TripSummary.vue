@@ -18,7 +18,7 @@ const emptyDays = computed(() => days.value.filter(d => !stopsByDay.value.get(d)
         <p class="text-sm text-muted">
           Van al viaje
         </p>
-        <p class="mt-1 text-3xl font-bold text-success">
+        <p class="mt-1 font-serif text-3xl font-semibold text-success">
           {{ stats.accepted }}
         </p>
         <p class="text-xs text-dimmed">
@@ -29,7 +29,7 @@ const emptyDays = computed(() => days.value.filter(d => !stopsByDay.value.get(d)
         <p class="text-sm text-muted">
           Sin responder
         </p>
-        <p class="mt-1 text-3xl font-bold text-warning">
+        <p class="mt-1 font-serif text-3xl font-semibold text-warning">
           {{ stats.pending }}
         </p>
         <p class="text-xs text-dimmed">
@@ -40,7 +40,7 @@ const emptyDays = computed(() => days.value.filter(d => !stopsByDay.value.get(d)
         <p class="text-sm text-muted">
           Votos
         </p>
-        <p class="mt-1 text-3xl font-bold text-primary">
+        <p class="mt-1 font-serif text-3xl font-semibold text-primary">
           {{ stats.votes }}
         </p>
         <p class="text-xs text-dimmed">
@@ -51,7 +51,7 @@ const emptyDays = computed(() => days.value.filter(d => !stopsByDay.value.get(d)
         <p class="text-sm text-muted">
           Itinerario
         </p>
-        <p class="mt-1 text-3xl font-bold">
+        <p class="mt-1 font-serif text-3xl font-semibold">
           {{ stops.length }}
         </p>
         <p class="text-xs text-dimmed">

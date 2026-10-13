@@ -73,7 +73,7 @@ function markerClass(m: MapMarker) {
   const active = m.id === activeId.value || m.id === props.highlightId
   return [
     'trip-marker flex items-center justify-center rounded-full border-2 border-white shadow-md',
-    'size-8 text-xs font-bold text-white transition-[scale,box-shadow] duration-150',
+    'size-8 text-xs font-bold text-inverted transition-[scale,box-shadow] duration-150',
     TONES[m.tone ?? 'primary'],
     m.dimmed && !active ? 'opacity-55' : '',
     active ? 'scale-125 ring-4 ring-primary/35' : 'group-hover:scale-110',
