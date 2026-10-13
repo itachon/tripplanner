@@ -1832,13 +1832,29 @@ select
   (select md5(string_agg(id::text, ',' order by id)) from public.places) as huella_ids;
 ```
 
+Los conteos y la huella de ids no detectan un nombre, una coordenada o una foto asignados al lugar equivocado. Guarda además la huella de contenido de los lugares y de las fichas:
+
+```sql
+select
+  (select md5(string_agg(concat_ws('|', id, name, address, latitude, longitude, category, photo_path, description, votable, sort_order), ';' order by id)) from public.places) as huella_contenido,
+  (select md5(string_agg(concat_ws('|', place_id, history, opening_hours, website, phone, photo_url, photo_credit, wikipedia_url), ';' order by place_id)) from public.place_info) as huella_fichas;
+```
+
+Respaldo obligatorio (no opcional): exporta a un archivo JSON, fuera del repo, las filas completas de `public.places` y `public.place_info`. La migración elimina 12 columnas de `places` y no tiene vuelta atrás.
+
+Lista también, para mostrárselo al usuario:
+
+- Los viajes cuyo `end_date` ya pasó: sus lugares nacen bloqueados (ni su creador podrá renombrarlos, cambiarles la foto o volverlos privados).
+- Los lugares con `mapbox_id` repetido, y los lugares repetidos por nombre dentro de un mismo viaje.
+- Todos los lugares por nombre y categoría: tras migrar quedan públicos y visibles para cualquier organizador registrado. Los que el usuario indique como privados se marcan `is_public = false` justo después de aplicar, dentro de la misma transacción.
+
 Y, para un link de viajero de prueba, guarda la respuesta de `/api/v/<token>/places` (nombres, fotos y votos).
 
 - [ ] **Step 2: Pedir confirmación y aplicar**
 
 Muéstrale al usuario los números del Step 1 y pídele confirmación para aplicar. Recomiéndale tener un respaldo reciente de la base (panel de Supabase → Database → Backups).
 
-Con su confirmación, aplica en orden `20261013000001_catalog_places.sql` y `20261013000002_catalog_rules.sql` (con `supabase db push` o la herramienta de migraciones que use el proyecto).
+Con su confirmación, aplica `20261013000001_catalog_places.sql` y `20261013000002_catalog_rules.sql`, en ese orden, **dentro de una sola transacción explícita** (`begin; … commit;`): los archivos no traen `begin/commit` y eliminan columnas, así que no pueden quedar aplicados a medias. Si cualquier sentencia falla, toda la transacción se revierte y la base queda como estaba. Dentro de la misma transacción, después del segundo archivo, marca como privados los lugares que el usuario haya indicado.
 
 - [ ] **Step 3: Comprobar que no se perdió nada**
 
@@ -1855,6 +1871,16 @@ select
 ```
 
 Expected: `lugares`, `votos`, `paradas_con_lugar`, `fichas`, `con_foto` y `huella_ids` iguales a los del Step 1; `en_catalogo` igual a `lugares`; `sin_origen` = 0.
+
+Compara también las huellas de contenido, ahora leyendo los datos del lugar desde el catálogo. Deben ser idénticas a las del Step 1:
+
+```sql
+select
+  (select md5(string_agg(concat_ws('|', p.id, c.name, c.address, c.latitude, c.longitude, c.category, c.photo_path, p.description, p.votable, p.sort_order), ';' order by p.id))
+     from public.places p join public.catalog_places c on c.id = p.catalog_place_id) as huella_contenido,
+  (select md5(string_agg(concat_ws('|', p.id, pi.history, pi.opening_hours, pi.website, pi.phone, pi.photo_url, pi.photo_credit, pi.wikipedia_url), ';' order by p.id))
+     from public.places p join public.place_info pi on pi.catalog_place_id = p.catalog_place_id) as huella_fichas;
+```
 
 La respuesta de `/api/v/<token>/places` del mismo viajero debe ser idéntica a la guardada.
 
