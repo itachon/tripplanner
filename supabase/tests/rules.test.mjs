@@ -264,6 +264,81 @@ check('no puede votar', /DEADLINE_PASSED/.test(await svcErr('select public.membe
 check('no puede quitar votos', /DEADLINE_PASSED/.test(await svcErr('select public.member_unvote($1,$2)', [tLucia, pTorre])))
 check('sigue viendo itinerario y lugares', (await mget(tLucia)).itinerary.length === 3 && (await mplaces(tLucia)).length === 3)
 
+console.log('\nCatálogo compartido')
+const visible = async uid => (await as('authenticated', uid, 'select * from public.catalog_places_visible()')).rows
+const patch = (uid, id, fields) => err('authenticated', uid, 'select public.catalog_place_update($1, $2::jsonb)', [id, JSON.stringify(fields)])
+const useExisting = async (uid, tripId, catId) => (await as('authenticated', uid, 'select public.trip_add_place($1, $2) r', [tripId, catId])).rows[0].r
+const catCount = async id => (await db.query('select count(*)::int n from public.catalog_places where id = $1', [id])).rows[0].n
+
+// Visibilidad (B creó la torre en el viaje de A; C es otro organizador)
+check('C ve los lugares públicos de otros, sin poder editarlos', (await visible(C)).some(r => r.id === cTorre && r.is_mine === false && r.editable === false))
+check('quien lo creó lo ve como suyo y editable', (await visible(B)).some(r => r.id === cTorre && r.is_mine === true && r.editable === true))
+check('el dueño del viaje no es el creador: no lo edita', (await visible(A)).some(r => r.id === cTorre && r.is_mine === false && r.editable === false))
+check('la fila visible no expone creador ni viaje de origen', !('created_by' in (await visible(C))[0]) && !('origin_trip_id' in (await visible(C))[0]))
+check('C lee la ficha de un lugar público', (await as('authenticated', C, 'select * from public.place_info where catalog_place_id = $1', [cTorre])).rows.length === 1)
+
+const priv = await addPlace(A, trip.id, { name: 'Casa de Ana', latitude: 37.5, longitude: 127.0, is_public: false })
+check('C no ve un lugar privado ajeno', !(await visible(C)).some(r => r.id === priv.catalog_place_id))
+check('B (co-admin del viaje) sí ve el privado', (await visible(B)).some(r => r.id === priv.catalog_place_id))
+check('C no puede sumar a su viaje un lugar privado ajeno', /PLACE_NOT_FOUND/.test(await err('authenticated', C, 'select public.trip_add_place($1, $2)', [otherTrip.id, priv.catalog_place_id])))
+
+// Reutilizar
+const reuse = await useExisting(C, otherTrip.id, cTorre)
+check('C suma a su viaje un lugar del catálogo sin duplicarlo', reuse.catalog_place_id === cTorre && reuse.created === false && (await db.query(`select count(*)::int n from public.catalog_places where name = 'N Seoul Tower'`)).rows[0].n === 1)
+check('sumarlo dos veces devuelve el mismo vínculo', (await useExisting(C, otherTrip.id, cTorre)).place_id === reuse.place_id)
+check('C no suma lugares a un viaje ajeno', /No administras/.test(await err('authenticated', C, 'select public.trip_add_place($1, $2)', [trip.id, cTorre])))
+
+const m1 = await addPlace(A, trip.id, { name: 'Lotte Tower', latitude: 37.5125, longitude: 127.1025, mapbox_id: 'dXJuOm1ieHBvaTox' })
+const m2 = await addPlace(C, otherTrip.id, { name: 'Lotte World Tower', latitude: 37.5126, longitude: 127.1026, mapbox_id: 'dXJuOm1ieHBvaTox' })
+check('mismo identificador de Mapbox: se reutiliza sin preguntar', m2.catalog_place_id === m1.catalog_place_id && m2.created === false)
+const f1 = await addPlace(A, trip.id, { name: 'Punto A', latitude: 37.6, longitude: 127.2, mapbox_id: '37.6,127.2' })
+const f2 = await addPlace(C, otherTrip.id, { name: 'Punto B', latitude: 37.6, longitude: 127.2, mapbox_id: '37.6,127.2' })
+check('un id de respaldo "lat,lng" no une lugares ni se guarda', f1.catalog_place_id !== f2.catalog_place_id && (await db.query('select mapbox_id from public.catalog_places where id = $1', [f1.catalog_place_id])).rows[0].mapbox_id === null)
+
+// Edición
+check('el creador edita', (await patch(B, cTorre, { name: 'Namsan Tower' })) === null)
+check('el cambio lo ven los demás viajes', (await visible(C)).find(r => r.id === cTorre).name === 'Namsan Tower')
+check('otro organizador no edita', /PLACE_LOCKED/.test(await patch(C, cTorre, { name: 'x' })))
+check('no se puede volver privado un lugar que usa otro viaje', /PLACE_SHARED/.test(await patch(B, cTorre, { is_public: false })))
+check('used_elsewhere avisa solo al creador', (await visible(B)).find(r => r.id === cTorre).used_elsewhere === true && (await visible(C)).find(r => r.id === cTorre).used_elsewhere === false)
+check('el parche no toca lo que no trae', (await db.query('select latitude from public.catalog_places where id = $1', [cTorre])).rows[0].latitude === 37.5512)
+
+// Bloqueo al terminar el viaje de origen
+const pastTrip = (await as('authenticated', A, `insert into public.trips (name, start_date, end_date, time_zone, rsvp_deadline) values ('Pasado', '2020-01-01', '2020-01-05', 'UTC', now()) returning id`)).rows[0]
+const oldPlace = await addPlace(A, pastTrip.id, { name: 'Lugar viejo', latitude: 1, longitude: 1 })
+check('terminado el viaje de origen, ni el creador edita', /PLACE_LOCKED/.test(await patch(A, oldPlace.catalog_place_id, { name: 'x' })))
+const todayTrip = (await as('authenticated', A, `insert into public.trips (name, start_date, end_date, time_zone, rsvp_deadline) values ('Hoy', (now() at time zone 'utc')::date, (now() at time zone 'utc')::date, 'UTC', now()) returning id`)).rows[0]
+const todayPlace = await addPlace(A, todayTrip.id, { name: 'Lugar de hoy', latitude: 2, longitude: 2 })
+check('el día en que termina el viaje todavía se puede editar', (await patch(A, todayPlace.catalog_place_id, { category: 'mirador' })) === null)
+await as('authenticated', A, 'delete from public.trips where id = $1', [todayTrip.id])
+check('borrar el viaje de origen conserva el lugar público', (await catCount(todayPlace.catalog_place_id)) === 1)
+check('y lo deja bloqueado', /PLACE_LOCKED/.test(await patch(A, todayPlace.catalog_place_id, { name: 'x' })))
+
+// Quitar de un viaje
+await as('authenticated', A, 'delete from public.places where id = $1', [priv.place_id])
+check('un lugar privado se borra al quitarlo de su último viaje', (await catCount(priv.catalog_place_id)) === 0)
+await as('authenticated', C, 'delete from public.places where id = $1', [reuse.place_id])
+check('uno público sigue en el catálogo al quitarlo de un viaje', (await catCount(cTorre)) === 1)
+
+// Búsqueda y cercanía
+const search = async (uid, q, tripId) => (await as('authenticated', uid, 'select id from public.catalog_search($1, $2, $3, $4)', [q, 37.55, 126.98, tripId])).rows.map(r => r.id)
+check('la búsqueda encuentra por nombre sin distinguir mayúsculas', (await search(C, 'namsan', otherTrip.id)).includes(cTorre))
+check('la búsqueda no lista lo que el viaje ya tiene', !(await search(A, 'namsan', trip.id)).includes(cTorre))
+check('con menos de 2 caracteres no devuelve nada', (await search(C, 'n', otherTrip.id)).length === 0)
+check('los comodines del texto se buscan literales', (await search(C, '%%', otherTrip.id)).length === 0 && (await search(C, '__', otherTrip.id)).length === 0)
+check('la búsqueda devuelve como máximo 5', (await search(C, 'a', null)).length <= 5)
+const near = async (lat, lng) => (await as('authenticated', C, 'select id from public.catalog_near($1, $2, 100, $3)', [lat, lng, otherTrip.id])).rows.map(r => r.id)
+check('cercanía: a unos metros lo encuentra', (await near(37.5513, 126.9883)).includes(cTorre))
+check('cercanía: a más de 100 m no', !(await near(37.5612, 126.9882)).includes(cTorre))
+
+// Portadas y fotos
+check('el creador guarda la foto del lugar', (await patch(B, cTorre, { photo_path: `catalog/${cTorre}/a.webp` })) === null)
+const covers = async uid => (await as('authenticated', uid, 'select * from public.trip_covers()')).rows
+check('trip_covers entrega la foto de mis viajes', (await covers(A)).find(r => r.trip_id === trip.id).photo_path === `catalog/${cTorre}/a.webp`)
+check('trip_covers no muestra viajes ajenos', !(await covers(C)).some(r => r.trip_id === trip.id))
+check('el creador sube foto a su lugar', !(await err('authenticated', B, `insert into storage.objects (bucket_id, name) values ('place-photos', $1)`, [`catalog/${cTorre}/a.webp`])))
+check('otro organizador no sube foto a un lugar ajeno', /row-level security/.test(await err('authenticated', C, `insert into storage.objects (bucket_id, name) values ('place-photos', $1)`, [`catalog/${cTorre}/x.webp`])))
+
 console.log('\nStorage')
 check('B sube foto a su viaje', !(await err('authenticated', B, `insert into storage.objects (bucket_id, name) values ('place-photos', $1)`, [`${trip.id}/a.webp`])))
 check('C no sube al viaje de A', /row-level security/.test(await err('authenticated', C, `insert into storage.objects (bucket_id, name) values ('place-photos', $1)`, [`${trip.id}/x.webp`])))
