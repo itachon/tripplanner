@@ -13,13 +13,14 @@ const props = defineProps<{ draft: PlaceDraft | null }>()
 const emit = defineEmits<{ saved: [placeId: string, created: boolean] }>()
 const open = defineModel<boolean>('open', { default: false })
 
-const { trip, places } = useTripCtx()
+const { trip } = useTripCtx()
 const { client } = useDb()
 const photoUrl = usePlacePhotoUrl()
 const photos = usePlacePhotos()
+const catalog = useCatalog()
 const toast = useToast()
 
-const state = reactive({ name: '', address: '', category: '', description: '', votable: true })
+const state = reactive({ name: '', address: '', category: '', description: '', votable: true, isPublic: true })
 const coords = ref<{ latitude: number, longitude: number } | null>(null)
 const newPhoto = ref<Blob | null>(null)
 const preview = ref<string | null>(null)
@@ -32,6 +33,15 @@ const photoUrlInput = ref('')
 
 const editing = computed(() => props.draft?.place ?? null)
 
+// Nombre, dirección, categoría, foto y visibilidad son del catálogo: los cambia solo
+// quien creó el lugar y solo mientras su viaje de origen no haya terminado.
+const canEditShared = computed(() => !editing.value || editing.value.editable)
+const lockReason = computed(() => {
+  const p = editing.value
+  if (!p || p.editable) return ''
+  return p.is_mine ? 'El viaje donde se creó este lugar ya terminó' : 'Este lugar lo creó otro organizador'
+})
+
 watch(open, (isOpen) => {
   if (!isOpen) return
   const p = editing.value
@@ -41,6 +51,7 @@ watch(open, (isOpen) => {
   state.category = p?.category ?? r?.category ?? ''
   state.description = p?.description ?? ''
   state.votable = p?.votable ?? true
+  state.isPublic = p?.is_public ?? true
   coords.value = p ? { latitude: p.latitude, longitude: p.longitude } : r ? { latitude: r.latitude, longitude: r.longitude } : null
   newPhoto.value = null
   removePhoto.value = false
@@ -110,43 +121,50 @@ function validate(s: typeof state): FormError[] {
 async function onSubmit(e: FormSubmitEvent<typeof state>) {
   if (!trip.value || !coords.value) return
   loading.value = true
-  const oldPath = editing.value?.photo_path ?? null
   let uploaded: string | null = null
+  const description = e.data.description.trim() || null
+  const shared = {
+    name: e.data.name.trim(),
+    address: e.data.address.trim() || null,
+    category: e.data.category.trim() || null,
+  }
   try {
-    let photoPath = oldPath
-    if (newPhoto.value) photoPath = uploaded = await photos.upload(trip.value.id, newPhoto.value)
-    else if (removePhoto.value) photoPath = null
-
-    const fields = {
-      name: e.data.name.trim(),
-      address: e.data.address.trim() || null,
-      category: e.data.category.trim() || null,
-      description: e.data.description.trim() || null,
-      votable: e.data.votable,
-      photo_path: photoPath,
-    }
-
-    if (editing.value) {
-      const { error } = await client.from('places').update(fields).eq('id', editing.value.id)
+    const p = editing.value
+    if (p) {
+      // Lo propio del viaje se guarda siempre
+      const { error } = await client.from('places').update({ votable: e.data.votable, description }).eq('id', p.id)
       if (error) throw error
-      if (oldPath && oldPath !== photoPath) await photos.remove(oldPath)
+      // Lo del catálogo, solo si el usuario puede: si no, catalog.update fallaría con PLACE_LOCKED
+      if (p.editable) {
+        let photoPath = p.photo_path
+        if (newPhoto.value) photoPath = uploaded = await photos.upload(p.catalog_place_id, newPhoto.value)
+        else if (removePhoto.value) photoPath = null
+        await catalog.update(p.catalog_place_id, { ...shared, photo_path: photoPath, is_public: e.data.isPublic })
+        if (p.photo_path && p.photo_path !== photoPath) await photos.remove(p.photo_path)
+      }
       toast.add({ color: 'success', title: 'Lugar actualizado' })
       open.value = false
-      emit('saved', editing.value.id, false)
+      emit('saved', p.id, false)
     }
     else {
-      const { data, error } = await client.from('places').insert({
-        ...fields,
-        trip_id: trip.value.id,
+      const res = await catalog.addNew(trip.value.id, {
+        ...shared,
         latitude: coords.value.latitude,
         longitude: coords.value.longitude,
-        mapbox_id: props.draft?.result?.id ?? null,
-        sort_order: Math.max(0, ...places.value.map(p => p.sort_order)) + 1,
-      }).select('id').single()
-      if (error || !data) throw error
-      toast.add({ color: 'success', title: 'Lugar agregado', description: 'Generando la ficha con IA…' })
+        mapbox_id: realMapboxId(props.draft?.result?.id),
+        is_public: e.data.isPublic,
+      }, e.data.votable, description)
+      // La foto va después de crear el lugar: su ruta lleva el id del catálogo.
+      // Si el lugar ya existía (mismo identificador de Mapbox), se respeta la foto que tiene.
+      if (newPhoto.value && res.created) {
+        uploaded = await photos.upload(res.catalog_place_id, newPhoto.value)
+        await catalog.update(res.catalog_place_id, { photo_path: uploaded })
+      }
+      toast.add(res.created
+        ? { color: 'success', title: 'Lugar agregado', description: 'Buscando información del lugar…' }
+        : { color: 'success', title: 'Lugar agregado', description: 'Ya estaba en el catálogo: se sumó a tu viaje con sus datos.' })
       open.value = false
-      emit('saved', data.id, true)
+      emit('saved', res.place_id, true)
     }
   }
   catch (err) {
@@ -170,17 +188,26 @@ onBeforeUnmount(() => setPreview(null))
           {{ coords.latitude.toFixed(5) }}, {{ coords.longitude.toFixed(5) }}
         </p>
 
+        <UAlert
+          v-if="lockReason"
+          color="neutral"
+          variant="subtle"
+          icon="i-lucide-lock"
+          :title="lockReason"
+          description="Puedes cambiar la votación y tu nota. El nombre, la dirección, la categoría y la foto son comunes a todos los viajes que usan este lugar."
+        />
+
         <UFormField label="Nombre" name="name" required>
-          <UInput v-model="state.name" placeholder="Palacio Gyeongbokgung" class="w-full" autofocus />
+          <UInput v-model="state.name" placeholder="Palacio Gyeongbokgung" class="w-full" autofocus :disabled="!canEditShared" />
         </UFormField>
 
         <UFormField label="Dirección" name="address">
-          <UInput v-model="state.address" class="w-full" />
+          <UInput v-model="state.address" class="w-full" :disabled="!canEditShared" />
         </UFormField>
 
         <div class="grid gap-4 sm:grid-cols-2">
           <UFormField label="Categoría" name="category">
-            <UInput v-model="state.category" placeholder="museo, mirador, hotel…" class="w-full" />
+            <UInput v-model="state.category" placeholder="museo, mirador, hotel…" class="w-full" :disabled="!canEditShared" />
           </UFormField>
           <UFormField name="votable" label="Votación">
             <USwitch
@@ -196,6 +223,17 @@ onBeforeUnmount(() => setPreview(null))
           <UTextarea v-model="state.description" :rows="2" autoresize placeholder="Reservar con anticipación, llevar ropa cómoda…" class="w-full" />
         </UFormField>
 
+        <UFormField v-if="canEditShared" name="isPublic" label="Visibilidad">
+          <USwitch
+            :model-value="!state.isPublic"
+            :disabled="!!editing?.used_elsewhere"
+            label="Solo para este viaje"
+            :description="editing?.used_elsewhere ? 'Otro viaje ya usa este lugar: no se puede dejar solo para este viaje.' : 'Otros organizadores no podrán verlo ni usarlo.'"
+            class="pt-1.5"
+            @update:model-value="state.isPublic = !$event"
+          />
+        </UFormField>
+
         <div>
           <p class="mb-1.5 text-sm font-medium">
             Foto (opcional)
@@ -208,7 +246,7 @@ onBeforeUnmount(() => setPreview(null))
                 <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin" />
               </div>
             </div>
-            <div class="flex flex-col gap-1.5">
+            <div v-if="canEditShared" class="flex flex-col gap-1.5">
               <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-upload" :loading="processing" @click="fileInput?.click()">
                 {{ preview ? 'Cambiar foto' : 'Subir foto' }}
               </UButton>
@@ -221,7 +259,7 @@ onBeforeUnmount(() => setPreview(null))
             </div>
             <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp" class="hidden" @change="onFile">
           </div>
-          <div v-if="urlMode" class="mt-2 flex gap-2">
+          <div v-if="urlMode && canEditShared" class="mt-2 flex gap-2">
             <UInput
               v-model="photoUrlInput"
               type="url"

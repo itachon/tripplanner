@@ -218,7 +218,8 @@ const deleteWarning = computed(() => {
   const s = stopsByPlace.value.get(p.id)?.length ?? 0
   if (v) parts.push(`sus ${v} ${v === 1 ? 'voto' : 'votos'}`)
   if (s) parts.push(`${s} ${s === 1 ? 'parada' : 'paradas'} del itinerario`)
-  return parts.length ? `También se borrarán ${parts.join(' y ')}.` : 'Se quitará del mapa.'
+  const base = parts.length ? `También se borrarán ${parts.join(' y ')}.` : 'Se quitará de este viaje.'
+  return `${base} ${p.is_public ? 'El lugar sigue disponible en el catálogo para otros viajes.' : 'Como es privado, se elimina del todo.'}`
 })
 
 async function confirmDelete() {
@@ -226,7 +227,7 @@ async function confirmDelete() {
   if (!p) return
   busy.value = true
   const { error } = await client.from('places').delete().eq('id', p.id)
-  if (!error) await photos.remove(p.photo_path)
+  if (!error && !p.is_public) await photos.remove(p.photo_path)
   busy.value = false
   deleteTarget.value = null
   if (error) return toast.add({ color: 'error', title: 'No se pudo borrar', description: errorMessage(error) })
@@ -372,6 +373,12 @@ function showDetail(p: Place) {
                   <UBadge v-else color="neutral" variant="outline" size="sm">
                     No votable
                   </UBadge>
+                  <UBadge v-if="!p.is_public" color="neutral" variant="outline" size="sm" icon="i-lucide-lock">
+                    Privado
+                  </UBadge>
+                  <UBadge v-else-if="!p.is_mine" color="neutral" variant="outline" size="sm" icon="i-lucide-users">
+                    De otro organizador
+                  </UBadge>
                   <UBadge v-if="stopsByPlace.get(p.id)?.length" color="success" variant="subtle" size="sm" icon="i-lucide-calendar-check">
                     En itinerario
                   </UBadge>
@@ -426,7 +433,7 @@ function showDetail(p: Place) {
       </template>
       <template #footer>
         <div class="w-full space-y-2">
-          <div class="flex flex-wrap items-center gap-2">
+          <div v-if="detailPlace?.editable" class="flex flex-wrap items-center gap-2">
             <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-upload" :loading="photoBusy" @click="detailFileInput?.click()">
               {{ detailPlace?.photo_path ? 'Cambiar foto' : 'Subir foto' }}
             </UButton>
@@ -435,7 +442,7 @@ function showDetail(p: Place) {
             </UButton>
             <input ref="detailFileInput" type="file" accept="image/jpeg,image/png,image/webp" class="hidden" @change="onDetailFile">
           </div>
-          <div v-if="detailUrlMode" class="flex gap-2">
+          <div v-if="detailUrlMode && detailPlace?.editable" class="flex gap-2">
             <UInput
               v-model="detailUrl"
               type="url"
