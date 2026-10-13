@@ -193,7 +193,6 @@ function menu(p: Place): DropdownMenuItem[][] {
       { label: 'Agregar al itinerario', icon: 'i-lucide-calendar-plus', onSelect: () => openStopForm({ placeId: p.id }) },
     ],
     [
-      { label: p.votable ? 'Quitar de la votación' : 'Poner en votación', icon: p.votable ? 'i-lucide-vote' : 'i-lucide-check-square', onSelect: () => toggleVotable(p) },
       { label: 'Mover arriba', icon: 'i-lucide-arrow-up', disabled: idx <= 0, onSelect: () => move(p, -1) },
       { label: 'Mover abajo', icon: 'i-lucide-arrow-down', disabled: idx === places.value.length - 1, onSelect: () => move(p, 1) },
     ],
