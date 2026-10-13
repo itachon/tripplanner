@@ -131,17 +131,19 @@ async function onSubmit(e: FormSubmitEvent<typeof state>) {
   try {
     const p = editing.value
     if (p) {
-      // Lo propio del viaje se guarda siempre
-      const { error } = await client.from('places').update({ votable: e.data.votable, description }).eq('id', p.id)
-      if (error) throw error
-      // Lo del catálogo, solo si el usuario puede: si no, catalog.update fallaría con PLACE_LOCKED
+      // Primero lo del catálogo (solo si el usuario puede: si no, catalog.update fallaría con PLACE_LOCKED)
+      // y, si tiene éxito, lo propio del viaje: así un fallo no deja el guardado a medias.
+      let photoPath = p.photo_path
       if (p.editable) {
-        let photoPath = p.photo_path
         if (newPhoto.value) photoPath = uploaded = await photos.upload(p.catalog_place_id, newPhoto.value)
         else if (removePhoto.value) photoPath = null
         await catalog.update(p.catalog_place_id, { ...shared, photo_path: photoPath, is_public: e.data.isPublic })
-        if (p.photo_path && p.photo_path !== photoPath) await photos.remove(p.photo_path)
+        // El catálogo ya apunta al archivo nuevo: ya no se debe borrar si algo falla después
+        uploaded = null
       }
+      const { error } = await client.from('places').update({ votable: e.data.votable, description }).eq('id', p.id)
+      if (error) throw error
+      if (p.editable && p.photo_path && p.photo_path !== photoPath) await photos.remove(p.photo_path)
       toast.add({ color: 'success', title: 'Lugar actualizado' })
       open.value = false
       emit('saved', p.id, false)
@@ -154,15 +156,26 @@ async function onSubmit(e: FormSubmitEvent<typeof state>) {
         mapbox_id: realMapboxId(props.draft?.result?.id),
         is_public: e.data.isPublic,
       }, e.data.votable, description)
-      // La foto va después de crear el lugar: su ruta lleva el id del catálogo.
+      // El lugar ya está creado y en el viaje: un fallo con la foto no lo deshace.
+      // La foto va después de crear el lugar porque su ruta lleva el id del catálogo.
       // Si el lugar ya existía (mismo identificador de Mapbox), se respeta la foto que tiene.
+      let photoFailed = false
       if (newPhoto.value && res.created) {
-        uploaded = await photos.upload(res.catalog_place_id, newPhoto.value)
-        await catalog.update(res.catalog_place_id, { photo_path: uploaded })
+        let up: string | null = null
+        try {
+          up = await photos.upload(res.catalog_place_id, newPhoto.value)
+          await catalog.update(res.catalog_place_id, { photo_path: up })
+        }
+        catch {
+          photoFailed = true
+          if (up) await photos.remove(up).catch(() => {})
+        }
       }
-      toast.add(res.created
-        ? { color: 'success', title: 'Lugar agregado', description: 'Buscando información del lugar…' }
-        : { color: 'success', title: 'Lugar agregado', description: 'Ya estaba en el catálogo: se sumó a tu viaje con sus datos.' })
+      toast.add(photoFailed
+        ? { color: 'warning', title: 'Lugar agregado', description: 'La foto no se pudo subir. Puedes agregarla después desde la ficha del lugar.' }
+        : res.created
+          ? { color: 'success', title: 'Lugar agregado', description: 'Buscando información del lugar…' }
+          : { color: 'success', title: 'Lugar agregado', description: 'Ya estaba en el catálogo: se sumó a tu viaje con sus datos.' })
       open.value = false
       emit('saved', res.place_id, true)
     }
