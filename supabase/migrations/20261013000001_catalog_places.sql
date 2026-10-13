@@ -165,6 +165,15 @@ begin
     if not public.catalog_place_visible(p_catalog_place_id) then
       raise exception 'PLACE_NOT_FOUND' using errcode = 'P0002';
     end if;
+    -- un lugar privado solo se usa en su viaje de origen
+    if exists (
+      select 1 from public.catalog_places c
+      where c.id = p_catalog_place_id
+        and not c.is_public
+        and p_trip_id is distinct from c.origin_trip_id
+    ) then
+      raise exception 'PLACE_NOT_FOUND' using errcode = 'P0002';
+    end if;
     v_cat := p_catalog_place_id;
   else
     if p_new is null then
@@ -201,6 +210,10 @@ begin
         select id into v_cat from public.catalog_places where is_public and mapbox_id = v_mapbox;
       end;
     end if;
+  end if;
+
+  if v_cat is null then
+    raise exception 'PLACE_NOT_FOUND' using errcode = 'P0002';
   end if;
 
   insert into public.places (trip_id, catalog_place_id, votable, description, sort_order)

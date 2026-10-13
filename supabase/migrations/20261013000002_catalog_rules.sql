@@ -21,6 +21,7 @@ as $$
     join public.trips t on t.id = c.origin_trip_id
     where c.id = p_id
       and c.created_by = (select auth.uid())
+      and public.is_trip_admin(c.origin_trip_id)
       and t.end_date >= (now() at time zone t.time_zone)::date
   );
 $$;
@@ -81,10 +82,10 @@ language sql
 immutable
 set search_path = ''
 as $$
-  select 2 * 6371000 * asin(sqrt(
+  select 2 * 6371000 * asin(least(1, sqrt(
     power(sin(radians(lat2 - lat1) / 2), 2)
     + cos(radians(lat1)) * cos(radians(lat2)) * power(sin(radians(lng2 - lng1) / 2), 2)
-  ));
+  )));
 $$;
 
 -- ---------------------------------------------------------------------
@@ -112,6 +113,7 @@ as $$
   select v.*
   from public.catalog_places_visible() v, q
   where q.len >= 2
+    and v.is_public
     and (v.name ilike q.pat or v.address ilike q.pat)
     and (
       p_exclude_trip is null
@@ -145,7 +147,8 @@ as $$
   select v.*
   from public.catalog_places_visible() v
   -- recorte grueso antes de calcular la distancia exacta (0,01° ≈ 1,1 km)
-  where v.latitude between p_lat - 0.01 and p_lat + 0.01
+  where v.is_public
+    and v.latitude between p_lat - 0.01 and p_lat + 0.01
     and v.longitude between p_lng - 0.01 / greatest(cos(radians(p_lat)), 0.01)
                         and p_lng + 0.01 / greatest(cos(radians(p_lat)), 0.01)
     and public._distance_m(p_lat, p_lng, v.latitude, v.longitude) <= least(greatest(coalesce(p_meters, 100), 1), 1000)
@@ -160,6 +163,25 @@ $$;
 
 revoke all on function public.catalog_near(double precision, double precision, double precision, uuid) from public, anon;
 grant execute on function public.catalog_near(double precision, double precision, double precision, uuid) to authenticated;
+
+-- Id del lugar del catálogo al que pertenece una ruta catalog/<id>/<archivo>
+-- (null para cualquier otra ruta, como las antiguas <trip_id>/<archivo>).
+create or replace function public.storage_catalog_place_id(p_name text)
+returns uuid
+language plpgsql
+immutable
+set search_path = ''
+as $$
+declare
+  v_id text := split_part(p_name, '/', 2);
+begin
+  if split_part(p_name, '/', 1) = 'catalog'
+     and v_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    return v_id::uuid;
+  end if;
+  return null;
+end;
+$$;
 
 -- ---------------------------------------------------------------------
 -- Editar un lugar del catálogo. p_patch trae solo lo que cambia:
@@ -180,9 +202,17 @@ begin
     select 1
     from public.places p
     join public.catalog_places c on c.id = p.catalog_place_id
-    where c.id = p_id and p.trip_id is distinct from c.origin_trip_id
+    where c.id = p_id and c.is_public and p.trip_id is distinct from c.origin_trip_id
   ) then
     raise exception 'PLACE_SHARED' using errcode = 'P0001';
+  end if;
+
+  -- la foto solo puede ser: ninguna, la que ya tiene o un archivo de la carpeta de este lugar
+  if p_patch ? 'photo_path'
+     and coalesce(p_patch->>'photo_path', '') <> ''
+     and (p_patch->>'photo_path') is distinct from (select c.photo_path from public.catalog_places c where c.id = p_id)
+     and public.storage_catalog_place_id(p_patch->>'photo_path') is distinct from p_id then
+    raise exception 'Ruta de foto no válida' using errcode = '22023';
   end if;
 
   begin
@@ -256,23 +286,6 @@ grant execute on function public.trip_covers() to authenticated;
 -- escribe solo quien puede editar ese lugar. Las rutas antiguas
 -- (<trip_id>/<archivo>) conservan su regla.
 -- ---------------------------------------------------------------------
-create or replace function public.storage_catalog_place_id(p_name text)
-returns uuid
-language plpgsql
-immutable
-set search_path = ''
-as $$
-declare
-  v_id text := split_part(p_name, '/', 2);
-begin
-  if split_part(p_name, '/', 1) = 'catalog'
-     and v_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
-    return v_id::uuid;
-  end if;
-  return null;
-end;
-$$;
-
 -- Un archivo que algún lugar del catálogo todavía muestra no se toca: los
 -- flujos legítimos mueven la referencia (photo_path) antes de borrar el viejo.
 create or replace function public.storage_photo_unreferenced(p_name text)
