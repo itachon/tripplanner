@@ -16,7 +16,7 @@ const selectedId = ref<string | null>(null)
 const hoverId = ref<string | null>(null)
 const picking = ref(false)
 const pendingPin = ref<{ latitude: number, longitude: number } | null>(null)
-const sortBy = ref<'order' | 'votes'>('order')
+const sortBy = ref<'order' | 'votes'>('votes')
 const enriching = ref(new Set<string>())
 
 const formOpen = ref(false)
@@ -290,7 +290,7 @@ function showDetail(p: Place) {
           <USelect
             v-model="sortBy"
             size="sm"
-            :items="[{ label: 'Orden propio', value: 'order' }, { label: 'Más votados', value: 'votes' }]"
+            :items="[{ label: 'Más votados', value: 'votes' }, { label: 'Orden propio', value: 'order' }]"
             class="w-36"
           />
         </div>
