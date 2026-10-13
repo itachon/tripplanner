@@ -72,8 +72,9 @@ En modo claro `--ui-primary` y `--ui-success` apuntan al paso 600 (no al 500 por
 
 ### Fondo y forma
 
-- Claro: `--ui-bg` `#faf6ef` (crema); las tarjetas y campos usan blanco para separarse del fondo.
-- Oscuro: los neutros `stone` de Nuxt UI, sin ajustes.
+- El fondo de página es una variable propia, `--app-canvas`, expuesta como la utilidad `bg-canvas`. `--ui-bg` no se toca: tarjetas, campos y modales siguen sobre la superficie de Nuxt UI y así se separan del fondo.
+- Claro: `--app-canvas` `#faf6ef` (crema), superficies blancas.
+- Oscuro: `--app-canvas` `stone-950`, superficies `stone-900` (el valor por defecto de Nuxt UI).
 - `--ui-radius`: `0.125rem`.
 - Las tarjetas se separan con borde fino; la sombra queda solo para elementos flotantes (tarjeta sobre el mapa, botón flotante, modales).
 
@@ -143,7 +144,7 @@ En `app/utils/image.ts`: recibe una lista de lugares con `photo_url`, `info` y `
 - **`layouts/admin.vue`:** fondo crema (se quita `bg-muted/40`), cabecera con el nombre "Viajes" en Fraunces. El menú de usuario no cambia.
 - **`pages/admin/index.vue`:** la consulta de viajes agrega `cover_places:places(photo_path)` y `cover_info:place_info(photo_url)` para resolver una portada por viaje. Como la lista no carga votos, usa el primer lugar con foto. Título "Mis viajes" en serifa.
 - **`TripCard.vue`:** `TripCover` tamaño `card` arriba (foto o color) con nombre y destino encima; debajo fechas, cuenta regresiva y los contadores de viajeros y lugares. La insignia "Co-admin" va sobre la portada.
-- **`pages/admin/viajes/[id].vue`:** la cabecera actual (nombre, destino, fechas, insignias, botón Editar) pasa a un `TripCover` tamaño `band`. La foto sale de `coverPhoto` con los lugares, votos y `place_info` que `useTripAdmin` ya carga, así coincide con la que ve el viajero. Las pestañas no cambian.
+- **`pages/admin/viajes/[id].vue`:** el nombre, el destino y las fechas pasan a un `TripCover` tamaño `band`. El botón Editar sube a la fila del enlace "Mis viajes" y las insignias de estado quedan bajo la portada, sin cambios (sobre la foto no se leerían). La foto sale de `coverPhoto` con los lugares, votos y `place_info` que `useTripAdmin` ya carga, así coincide con la que ve el viajero. Las pestañas no cambian.
 - **Paneles y modales:** sin cambios de estructura.
 
 ## Casos borde
