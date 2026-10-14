@@ -40,6 +40,10 @@ const hours = computed(() => {
     return { open: null, text: raw } // no se pudo interpretar: mostrar el dato crudo
   }
 })
+
+// Nunca se muestra la etiqueta técnica: solo la categoría (icono, color y nombre)
+const { resolve } = usePlaceCategories()
+const cat = computed(() => (props.category?.trim() ? resolve(props.category) : null))
 </script>
 
 <template>
@@ -64,8 +68,15 @@ const hours = computed(() => {
           {{ address }}
         </p>
       </div>
-      <UBadge v-if="category" color="neutral" variant="subtle" size="sm" class="shrink-0 capitalize">
-        {{ category }}
+      <UBadge
+        v-if="cat"
+        variant="subtle"
+        size="sm"
+        class="shrink-0"
+        :icon="cat.icon"
+        :style="{ color: cat.color, backgroundColor: `${cat.color}1a` }"
+      >
+        {{ cat.label_es }}
       </UBadge>
     </div>
 

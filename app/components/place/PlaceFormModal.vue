@@ -21,6 +21,7 @@ const photoUrl = usePlacePhotoUrl()
 const photos = usePlacePhotos()
 const catalog = useCatalog()
 const toast = useToast()
+const { categories, loaded: categoriesLoaded, resolve: resolveCategory } = usePlaceCategories()
 
 const state = reactive({ name: '', address: '', category: '', description: '', votable: true, isPublic: true })
 const coords = ref<{ latitude: number, longitude: number } | null>(null)
@@ -34,6 +35,19 @@ const urlMode = ref(false)
 const photoUrlInput = ref('')
 
 const editing = computed(() => props.draft?.place ?? null)
+
+// La etiqueta original (de Mapbox o guardada) no se muestra: se elige una categoría.
+// Si no se cambia, al guardar se conserva la etiqueta original tal cual.
+const rawTag = ref<string | null>(null)
+const initialKey = ref('')
+const categoryItems = computed(() => categories.value.map(c => ({ label: c.label_es, value: c.key, icon: c.icon })))
+
+function initCategory() {
+  initialKey.value = categoriesLoaded.value ? resolveCategory(rawTag.value)?.key ?? OTHER_CATEGORY : ''
+  state.category = categoriesLoaded.value ? initialKey.value : rawTag.value ?? ''
+}
+// Si las categorías llegan con el formulario ya abierto
+watch(categoriesLoaded, () => { if (open.value) initCategory() })
 
 // Nombre, dirección, categoría, foto y visibilidad son del catálogo: los cambia solo
 // quien creó el lugar y solo mientras su viaje de origen no haya terminado.
@@ -50,7 +64,8 @@ watch(open, (isOpen) => {
   const r = props.draft?.result
   state.name = p?.name ?? r?.name ?? ''
   state.address = p?.address ?? r?.address ?? ''
-  state.category = p?.category ?? r?.category ?? ''
+  rawTag.value = p?.category ?? r?.category ?? null
+  initCategory()
   state.description = p?.description ?? ''
   state.votable = p?.votable ?? props.draft?.votable ?? true
   state.isPublic = p?.is_public ?? true
@@ -128,7 +143,9 @@ async function onSubmit(e: FormSubmitEvent<typeof state>) {
   const shared = {
     name: e.data.name.trim(),
     address: e.data.address.trim() || null,
-    category: e.data.category.trim() || null,
+    category: categoriesLoaded.value
+      ? categoryToSave(rawTag.value, initialKey.value, e.data.category)
+      : e.data.category.trim() || null,
   }
   try {
     const p = editing.value
@@ -229,7 +246,16 @@ onBeforeUnmount(() => setPreview(null))
 
         <div class="grid gap-4 sm:grid-cols-2">
           <UFormField label="Categoría" name="category">
-            <UInput v-model="state.category" placeholder="museo, mirador, hotel…" class="w-full" :disabled="!canEditShared" />
+            <USelectMenu
+              v-if="categoriesLoaded"
+              v-model="state.category"
+              :items="categoryItems"
+              value-key="value"
+              :search-input="{ placeholder: 'Buscar…' }"
+              class="w-full"
+              :disabled="!canEditShared"
+            />
+            <UInput v-else v-model="state.category" placeholder="museo, mirador, hotel…" class="w-full" :disabled="!canEditShared" />
           </UFormField>
           <UFormField name="votable" label="Votación">
             <USwitch
