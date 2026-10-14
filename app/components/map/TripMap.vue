@@ -65,12 +65,30 @@ let fitted = false
 let lastSelectedByMe: string | null = null
 
 const activeId = computed(() => hoveredId.value ?? pinnedId.value)
-const activeMarker = computed(() => props.markers.find(m => m.id === activeId.value) ?? null)
+const activeMarker = computed(() => shownMarkers.value.find(m => m.id === activeId.value) ?? null)
 const isPinned = computed(() => !!pinnedId.value && activeId.value === pinnedId.value)
 
 // Los puntos se montan con render(): necesitan el contexto de la app para <UIcon>
 const appContext = getCurrentInstance()!.appContext
 const { resolve: resolveCategory, loaded: categoriesLoaded } = usePlaceCategories()
+
+// ---- Filtro por categoría: solo cambia qué puntos se ven (no la lista ni el encuadre) ----
+const selectedCats = ref(new Set<string>())
+const presentCats = computed(() => categoryCounts(props.markers, resolveCategory))
+const shownMarkers = computed(() => filterByCategory(props.markers, selectedCats.value, resolveCategory))
+
+function toggleCat(key: string) {
+  const next = new Set(selectedCats.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  selectedCats.value = next
+}
+
+// Una categoría elegida que ya no tiene puntos deja de filtrar
+watch(presentCats, (list) => {
+  const keys = new Set(list.map(c => c.category.key))
+  if ([...selectedCats.value].some(k => !keys.has(k))) selectedCats.value = new Set([...selectedCats.value].filter(k => keys.has(k)))
+})
 
 /** Los puntos del catálogo aparecen y desaparecen al mover el mapa: no deciden el encuadre */
 const tripMarkers = computed(() => props.markers.filter(m => m.fit ?? m.tone !== 'catalog'))
@@ -110,7 +128,7 @@ function paintMarker(m: MapMarker, el: HTMLButtonElement, marker: MapboxMarker) 
 
 function syncMarkers() {
   if (!map.value || !mapboxgl) return
-  const keep = new Set(props.markers.map(m => m.id))
+  const keep = new Set(shownMarkers.value.map(m => m.id))
   for (const [id, { marker }] of markerEls) {
     if (!keep.has(id)) {
       render(null, markerEls.get(id)!.el)
@@ -118,7 +136,7 @@ function syncMarkers() {
       markerEls.delete(id)
     }
   }
-  for (const m of props.markers) {
+  for (const m of shownMarkers.value) {
     let entry = markerEls.get(m.id)
     if (!entry) {
       const el = createMarkerEl(m)
@@ -326,7 +344,7 @@ onMounted(async () => {
       lastSize = size
       m.resize()
       if (wasHidden) {
-        const mk = props.markers.find(x => x.id === pinnedId.value)
+        const mk = shownMarkers.value.find(x => x.id === pinnedId.value)
         if (mk) m.jumpTo({ center: [mk.longitude, mk.latitude], zoom: Math.max(m.getZoom(), 13) })
         else if (!fitted) fit(false)
         emitBounds()
@@ -353,7 +371,11 @@ onBeforeUnmount(() => {
   map.value = null
 })
 
-watch(() => props.markers, syncMarkers, { deep: true })
+watch(shownMarkers, (list) => {
+  // El punto abierto quedó oculto por el filtro: se cierra su tarjeta
+  if (pinnedId.value && !list.some(m => m.id === pinnedId.value) && props.markers.some(m => m.id === pinnedId.value)) close()
+  syncMarkers()
+}, { deep: true })
 watch([activeId, () => props.highlightId], syncMarkers)
 watch(categoriesLoaded, syncMarkers)
 watch(() => props.route, syncRoute, { deep: true })
@@ -371,6 +393,8 @@ watch(() => props.picking, (on) => {
 watch(() => props.selectedId, (id) => {
   if (id === lastSelectedByMe) return
   lastSelectedByMe = id
+  // Elegido en la lista pero oculto por el filtro: se quita el filtro para mostrarlo
+  if (id && !shownMarkers.value.some(m => m.id === id)) selectedCats.value = new Set()
   pinnedId.value = id
   const mk = props.markers.find(m => m.id === id)
   if (mk && map.value) {
@@ -383,6 +407,39 @@ watch(() => props.selectedId, (id) => {
   <div ref="root" class="relative size-full overflow-hidden bg-elevated" :class="{ 'trip-map-picking': picking }">
     <!-- size-full (no absolute): el CSS de Mapbox fuerza position: relative en este div -->
     <div ref="container" class="size-full" />
+
+    <!-- Filtro por categoría (solo si hay más de una en el mapa) -->
+    <div
+      v-if="token && presentCats.length > 1 && !picking"
+      class="absolute left-2 top-2 z-10 flex max-w-[calc(100%-4rem)] gap-1 overflow-x-auto pb-1"
+      role="toolbar"
+      aria-label="Filtrar por categoría"
+      data-testid="category-filter"
+    >
+      <button
+        type="button"
+        class="flex shrink-0 items-center rounded-full border px-2.5 py-1 text-xs font-medium shadow-sm transition"
+        :class="selectedCats.size ? 'border-default bg-default/90 text-muted hover:bg-default' : 'border-inverted bg-inverted text-inverted'"
+        :aria-pressed="!selectedCats.size"
+        @click="selectedCats = new Set()"
+      >
+        Todas
+      </button>
+      <button
+        v-for="c in presentCats"
+        :key="c.category.key"
+        type="button"
+        class="flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium shadow-sm transition"
+        :class="selectedCats.has(c.category.key) ? 'text-white' : 'border-default bg-default/90 hover:bg-default'"
+        :style="selectedCats.has(c.category.key) ? { backgroundColor: c.category.color, borderColor: c.category.color } : { color: c.category.color }"
+        :aria-pressed="selectedCats.has(c.category.key)"
+        @click="toggleCat(c.category.key)"
+      >
+        <UIcon :name="c.category.icon" class="size-3.5" />
+        {{ c.category.label_es }}
+        <span class="tabular-nums opacity-75">{{ c.count }}</span>
+      </button>
+    </div>
 
     <div v-if="!token" class="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center">
       <UIcon name="i-lucide-map" class="size-10 text-dimmed" />
