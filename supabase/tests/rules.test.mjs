@@ -406,6 +406,9 @@ check('catalog/: el creador no la renombra mientras se muestra', (await renObj(B
 await db.query(`update public.catalog_places set photo_path = null where id = $1`, [cTorre])
 check('catalog/: sin referencia, el creador sí la borra', (await delObj(B, `catalog/${cTorre}/a.webp`)) === 1)
 
+const fromItinerary = (await as('authenticated', C, 'select public.trip_add_place($1, $2, null, false) r', [otherTrip.id, cTorre])).rows[0].r
+check('un lugar del catálogo se puede sumar fuera de la votación', (await db.query('select votable from public.places where id = $1', [fromItinerary.place_id])).rows[0].votable === false)
+
 console.log('\nStorage')
 check('B sube foto a su viaje', !(await err('authenticated', B, `insert into storage.objects (bucket_id, name) values ('place-photos', $1)`, [`${trip.id}/a.webp`])))
 check('C no sube al viaje de A', /row-level security/.test(await err('authenticated', C, `insert into storage.objects (bucket_id, name) values ('place-photos', $1)`, [`${trip.id}/x.webp`])))

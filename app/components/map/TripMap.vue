@@ -77,7 +77,7 @@ const TONES: Record<NonNullable<MapMarker['tone']>, string> = {
 
 const small = (m: MapMarker) => m.tone === 'off' || m.tone === 'catalog'
 /** Los puntos del catálogo aparecen y desaparecen al mover el mapa: no deciden el encuadre */
-const tripMarkers = computed(() => props.markers.filter(m => m.tone !== 'catalog'))
+const tripMarkers = computed(() => props.markers.filter(m => m.fit ?? m.tone !== 'catalog'))
 
 // El estilo va en un círculo interior: el <button> exterior es de Mapbox, que
 // le pone sus clases (mapboxgl-marker, position absolute) y lo ubica con

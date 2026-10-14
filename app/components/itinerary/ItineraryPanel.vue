@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import type { DropdownMenuItem } from '@nuxt/ui'
 import type { Stop } from '~/composables/useTripAdmin'
+import type { CatalogPlace } from '~~/shared/types/catalog'
 import type { MapMarker } from '~~/shared/types/map'
 import type { TimelineItem } from './ItineraryTimeline.vue'
 
-const { trip, days, stops, stopsByDay, placeById, stats, refresh, openStopForm, stopTitle, placeInfoByPlace } = useTripCtx()
+const { trip, places, days, stops, stopsByDay, stopsByPlace, placeById, stats, refresh, openStopForm, stopTitle, placeInfoByPlace } = useTripCtx()
 const { client } = useDb()
 const photoUrl = usePlacePhotoUrl()
 const toast = useToast()
+const catalog = useCatalog()
 
 const day = ref<string>('all')
 const hoverPlace = ref<string | null>(null)
@@ -48,6 +50,12 @@ const visibleStops = computed(() =>
   (day.value === 'all' ? stops.value : stopsByDay.value.get(day.value) ?? []).filter(s => s.place_id && placeById.value.has(s.place_id)),
 )
 
+// Lugares del catálogo de la zona visible que el viaje aún no tiene
+const inView = useCatalogInView(computed(() => trip.value?.id), () => places.value.map(p => p.catalog_place_id).join(','))
+const catalogById = inView.byMarkerId
+const catalogInfo = inView.info
+watch(selectedPlace, inView.loadInfo)
+
 // Un pin por lugar (si un lugar se repite, se muestra una vez)
 const markers = computed<MapMarker[]>(() => {
   const seen = new Set<string>()
@@ -65,8 +73,43 @@ const markers = computed<MapMarker[]>(() => {
       title: p.name,
     })
   }
+  // Lo que aún no está en el itinerario va en celeste punteado: lugares del viaje sin
+  // ninguna parada y lugares del catálogo de la zona visible
+  // (sin paradas a la vista, el mapa se encuadra en los lugares del viaje)
+  const fit = !out.length
+  for (const p of places.value) {
+    if (stopsByPlace.value.get(p.id)?.length) continue
+    out.push({ id: p.id, latitude: p.latitude, longitude: p.longitude, label: '+', tone: 'catalog', title: p.name, fit })
+  }
+  out.push(...inView.markers.value)
   return out
 })
+
+// ---- Agregar paradas desde el mapa ----
+const dayForNewStop = () => (day.value === 'all' ? null : day.value)
+
+function addStopAt(placeId: string) {
+  openStopForm({ placeId, day: dayForNewStop() })
+}
+
+const adding = ref<string | null>(null)
+/** Suma al viaje un lugar del catálogo (fuera de la votación: ya está decidido) y abre su parada */
+async function addStopFromCatalog(c: CatalogPlace) {
+  if (!trip.value || adding.value) return
+  adding.value = c.id
+  try {
+    const res = await catalog.addExisting(trip.value.id, c.id, false)
+    await refresh()
+    selectedPlace.value = null
+    addStopAt(res.place_id)
+  }
+  catch (err) {
+    toast.add({ color: 'error', title: 'No se pudo agregar', description: errorMessage(err) })
+  }
+  finally {
+    adding.value = null
+  }
+}
 
 const route = computed<[number, number][] | null>(() => {
   if (day.value === 'all') return null
@@ -245,9 +288,40 @@ async function confirmDelete() {
             :selected-id="selectedPlace"
             :fit-key="day"
             @select="selectedPlace = $event"
+            @bounds="inView.load"
           >
             <template #card="{ marker, pinned, close }">
-              <UCard v-if="placeById.get(marker.id)" :ui="{ body: 'p-3 sm:p-3 max-h-[320px] overflow-y-auto' }" class="shadow-xl">
+              <UCard v-if="catalogById.get(marker.id)" :ui="{ body: 'p-3 sm:p-3 max-h-[320px] overflow-y-auto' }" class="shadow-xl">
+                <p class="mb-1 flex items-center gap-1 text-xs font-semibold text-sky-700 dark:text-sky-300">
+                  <UIcon name="i-lucide-bookmark" class="size-3.5" />
+                  En el catálogo, aún no está en tu viaje
+                </p>
+                <PlaceInfoCard
+                  :name="catalogById.get(marker.id)!.name"
+                  :address="catalogById.get(marker.id)!.address"
+                  :category="catalogById.get(marker.id)!.category"
+                  :photo-url="photoUrl(catalogById.get(marker.id)!.photo_path)"
+                  :info="catalogInfo.get(catalogById.get(marker.id)!.id) ?? null"
+                  compact
+                />
+                <div v-if="pinned" class="mt-2 flex justify-end gap-1">
+                  <UButton
+                    size="xs"
+                    color="primary"
+                    variant="soft"
+                    icon="i-lucide-calendar-plus"
+                    :loading="adding === catalogById.get(marker.id)!.id"
+                    @click="addStopFromCatalog(catalogById.get(marker.id)!)"
+                  >
+                    Agregar parada
+                  </UButton>
+                  <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" aria-label="Cerrar" @click="close" />
+                </div>
+              </UCard>
+              <UCard v-else-if="placeById.get(marker.id)" :ui="{ body: 'p-3 sm:p-3 max-h-[320px] overflow-y-auto' }" class="shadow-xl">
+                <p v-if="!stopsByPlace.get(marker.id)?.length" class="mb-1 text-xs font-semibold text-sky-700 dark:text-sky-300">
+                  En tu viaje, aún sin parada
+                </p>
                 <p v-for="s in stopsAtPlace(marker.id)" :key="s.id" class="mb-1 text-xs font-semibold text-primary">
                   Día {{ days.indexOf(s.day) + 1 }}{{ s.start_time ? ` · ${shortTime(s.start_time)}` : '' }}{{ s.end_time ? ` – ${shortTime(s.end_time)}` : '' }}
                 </p>
@@ -259,7 +333,10 @@ async function confirmDelete() {
                   :info="placeInfoByPlace.get(marker.id) ?? null"
                   compact
                 />
-                <div v-if="pinned" class="mt-2 flex justify-end">
+                <div v-if="pinned" class="mt-2 flex justify-end gap-1">
+                  <UButton size="xs" color="primary" variant="soft" icon="i-lucide-calendar-plus" @click="addStopAt(marker.id)">
+                    Agregar parada
+                  </UButton>
                   <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click="close">
                     Cerrar
                   </UButton>
@@ -268,8 +345,11 @@ async function confirmDelete() {
             </template>
           </TripMap>
         </div>
-        <p v-if="day === 'all' && markers.length" class="mt-1.5 text-xs text-dimmed">
+        <p v-if="day === 'all' && visibleStops.length" class="mt-1.5 text-xs text-dimmed">
           El número de cada punto indica el día. Elige un día para ver el recorrido en orden.
+        </p>
+        <p v-if="markers.some(m => m.tone === 'catalog')" class="mt-1 text-xs text-dimmed">
+          Los puntos celestes punteados con "+" aún no están en el itinerario: tócalos para agregar una parada.
         </p>
       </div>
     </div>

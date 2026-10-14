@@ -56,8 +56,8 @@ export function useCatalog() {
     })) ?? []
   }
 
-  async function addExisting(tripId: string, catalogPlaceId: string): Promise<AddPlaceResult> {
-    return unwrap<AddPlaceResult>(await db.rpc('trip_add_place', { p_trip_id: tripId, p_catalog_place_id: catalogPlaceId }))
+  async function addExisting(tripId: string, catalogPlaceId: string, votable = true): Promise<AddPlaceResult> {
+    return unwrap<AddPlaceResult>(await db.rpc('trip_add_place', { p_trip_id: tripId, p_catalog_place_id: catalogPlaceId, p_votable: votable }))
   }
 
   async function addNew(tripId: string, place: NewCatalogPlace, votable: boolean, description: string | null): Promise<AddPlaceResult> {

@@ -12,5 +12,7 @@ export interface MapMarker {
    */
   tone?: 'primary' | 'success' | 'neutral' | 'warning' | 'off' | 'catalog'
   dimmed?: boolean
+  /** cuenta para encuadrar el mapa (por defecto, todos menos los de tono catalog) */
+  fit?: boolean
   title: string
 }
