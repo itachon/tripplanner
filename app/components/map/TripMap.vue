@@ -52,7 +52,7 @@ const mapError = ref('')
 
 const hoveredId = ref<string | null>(null)
 const pinnedId = ref<string | null>(props.selectedId)
-const cardPos = ref<{ x: number, y: number, above: boolean, sheet: boolean } | null>(null)
+const cardPos = ref<{ x: number, y: number, above: boolean, room: number, sheet: boolean } | null>(null)
 
 const markerEls = new Map<string, { marker: MapboxMarker, el: HTMLButtonElement }>()
 let pendingMarker: MapboxMarker | null = null
@@ -177,8 +177,13 @@ function updateCardPos() {
   const w = box.clientWidth
   const half = Math.min(CARD_W, w - 16) / 2
   const x = Math.min(Math.max(p.x, half + 8), w - half - 8)
-  // En pantallas angostas la ficha va como hoja anclada abajo del mapa
-  cardPos.value = { x, y: p.y, above: p.y > box.clientHeight * 0.55, sheet: w < 520 }
+  // Se abre hacia el lado con más espacio y nunca más alta que ese espacio,
+  // para que sus botones no queden cortados por el borde del mapa.
+  // En pantallas angostas la ficha va como hoja anclada abajo del mapa.
+  const h = box.clientHeight
+  const above = p.y > h / 2
+  const room = Math.max((above ? p.y : h - p.y) - 24 - 8, 120)
+  cardPos.value = { x, y: p.y, above, room, sheet: w < 520 }
 }
 
 function syncRoute() {
@@ -415,6 +420,8 @@ watch(() => props.selectedId, (id) => {
           top: `${cardPos.y}px`,
           width: `${CARD_W}px`,
           maxWidth: 'calc(100% - 16px)',
+          maxHeight: `${cardPos.room}px`,
+          overflowY: 'auto',
           transform: cardPos.above ? 'translate(-50%, calc(-100% - 24px))' : 'translate(-50%, 24px)',
         }"
       data-testid="map-card"

@@ -86,6 +86,9 @@ const markers = computed<MapMarker[]>(() => {
 })
 
 // ---- Agregar paradas desde el mapa ----
+// Los botones van en el pie de la tarjeta: así no se pierden al bajar por una ficha larga
+const CARD_UI = { body: 'p-3 sm:p-3 max-h-[260px] overflow-y-auto', footer: 'px-3 py-2 sm:px-3' }
+
 const dayForNewStop = () => (day.value === 'all' ? null : day.value)
 
 function addStopAt(placeId: string) {
@@ -280,7 +283,7 @@ async function confirmDelete() {
       </div>
 
       <div class="order-1 lg:order-2">
-        <div class="h-[320px] overflow-hidden rounded-lg border border-default sm:h-[420px] lg:sticky lg:top-20">
+        <div class="h-[460px] overflow-hidden rounded-lg border border-default sm:h-[600px] lg:sticky lg:top-20 lg:h-[calc(100dvh-6rem)] lg:min-h-[600px] lg:max-h-[900px]">
           <TripMap
             :markers="markers"
             :route="route"
@@ -291,7 +294,7 @@ async function confirmDelete() {
             @bounds="inView.load"
           >
             <template #card="{ marker, pinned, close }">
-              <UCard v-if="catalogById.get(marker.id)" :ui="{ body: 'p-3 sm:p-3 max-h-[320px] overflow-y-auto' }" class="shadow-xl">
+              <UCard v-if="catalogById.get(marker.id)" :ui="CARD_UI" class="shadow-xl">
                 <p class="mb-1 flex items-center gap-1 text-xs font-semibold text-sky-700 dark:text-sky-300">
                   <UIcon name="i-lucide-bookmark" class="size-3.5" />
                   En el catálogo, aún no está en tu viaje
@@ -304,21 +307,23 @@ async function confirmDelete() {
                   :info="catalogInfo.get(catalogById.get(marker.id)!.id) ?? null"
                   compact
                 />
-                <div v-if="pinned" class="mt-2 flex justify-end gap-1">
-                  <UButton
-                    size="xs"
-                    color="primary"
-                    variant="soft"
-                    icon="i-lucide-calendar-plus"
-                    :loading="adding === catalogById.get(marker.id)!.id"
-                    @click="addStopFromCatalog(catalogById.get(marker.id)!)"
-                  >
-                    Agregar parada
-                  </UButton>
-                  <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" aria-label="Cerrar" @click="close" />
-                </div>
+                <template v-if="pinned" #footer>
+                  <div class="flex justify-end gap-1">
+                    <UButton
+                      size="xs"
+                      color="primary"
+                      variant="soft"
+                      icon="i-lucide-calendar-plus"
+                      :loading="adding === catalogById.get(marker.id)!.id"
+                      @click="addStopFromCatalog(catalogById.get(marker.id)!)"
+                    >
+                      Agregar parada
+                    </UButton>
+                    <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" aria-label="Cerrar" @click="close" />
+                  </div>
+                </template>
               </UCard>
-              <UCard v-else-if="placeById.get(marker.id)" :ui="{ body: 'p-3 sm:p-3 max-h-[320px] overflow-y-auto' }" class="shadow-xl">
+              <UCard v-else-if="placeById.get(marker.id)" :ui="CARD_UI" class="shadow-xl">
                 <p v-if="!stopsByPlace.get(marker.id)?.length" class="mb-1 text-xs font-semibold text-sky-700 dark:text-sky-300">
                   En tu viaje, aún sin parada
                 </p>
@@ -333,14 +338,16 @@ async function confirmDelete() {
                   :info="placeInfoByPlace.get(marker.id) ?? null"
                   compact
                 />
-                <div v-if="pinned" class="mt-2 flex justify-end gap-1">
-                  <UButton size="xs" color="primary" variant="soft" icon="i-lucide-calendar-plus" @click="addStopAt(marker.id)">
-                    Agregar parada
-                  </UButton>
-                  <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click="close">
-                    Cerrar
-                  </UButton>
-                </div>
+                <template v-if="pinned" #footer>
+                  <div class="flex justify-end gap-1">
+                    <UButton size="xs" color="primary" variant="soft" icon="i-lucide-calendar-plus" @click="addStopAt(marker.id)">
+                      Agregar parada
+                    </UButton>
+                    <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click="close">
+                      Cerrar
+                    </UButton>
+                  </div>
+                </template>
               </UCard>
             </template>
           </TripMap>

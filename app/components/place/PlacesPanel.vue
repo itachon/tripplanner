@@ -318,7 +318,7 @@ function showDetail(p: Place) {
 <template>
   <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
     <!-- Mapa -->
-    <div class="h-[360px] overflow-hidden rounded-lg border border-default sm:h-[480px] lg:sticky lg:top-20 lg:h-[calc(100dvh-7rem)] lg:max-h-[720px]">
+    <div class="h-[460px] overflow-hidden rounded-lg border border-default sm:h-[600px] lg:sticky lg:top-20 lg:h-[calc(100dvh-6rem)] lg:min-h-[600px] lg:max-h-[900px]">
       <TripMap
         :markers="markers"
         :selected-id="selectedId"
