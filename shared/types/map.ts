@@ -1,3 +1,13 @@
+/** Cómo se va de una parada a la siguiente */
+export type RouteMode = 'walking' | 'driving'
+
+/** Tramo del recorrido: por calles (walking/driving) o en línea recta si aún no hay ruta */
+export interface RouteSegment {
+  /** [lng, lat][] */
+  coordinates: [number, number][]
+  mode: RouteMode | 'straight'
+}
+
 /** Punto que se dibuja en el mapa */
 export interface MapMarker {
   id: string
