@@ -7,7 +7,11 @@ const open = defineModel<boolean>('open', { default: false })
 
 const { trip, places, days, stopsByDay, refresh } = useTripCtx()
 const { client } = useDb()
+const catalog = useCatalog()
 const toast = useToast()
+
+// Los lugares del catálogo se eligen con este prefijo; al guardar se suman al viaje
+const CAT = 'cat:'
 
 const state = reactive({
   day: '',
@@ -22,14 +26,31 @@ const loading = ref(false)
 const editing = computed(() => props.draft?.stop ?? null)
 
 const dayItems = computed(() => days.value.map((d, i) => ({ label: `Día ${i + 1} · ${formatDayShort(d)}`, value: d })))
-const placeItems = computed(() => places.value.map(p => ({ label: p.name, value: p.id, description: p.address ?? undefined })))
+const catalogChoices = computed(() => (editing.value ? [] : props.draft?.catalog ?? []))
+const placeItems = computed(() => {
+  const mine = places.value.map(p => ({ label: p.name, value: p.id, description: p.address ?? undefined }))
+  const fromCatalog = catalogChoices.value.map(c => ({ label: c.name, value: CAT + c.id, description: c.address ?? undefined }))
+  if (!fromCatalog.length) return mine
+  return [
+    // (los títulos de grupo llevan value vacío solo para que value-key tipe; no se pueden elegir)
+    [{ type: 'label' as const, label: 'En tu viaje', value: '' }, ...mine],
+    [{ type: 'label' as const, label: 'Del catálogo, en el mapa', value: '' }, ...fromCatalog],
+  ]
+})
+
+/** id del lugar en el viaje; si se eligió uno del catálogo, primero lo suma (fuera de la votación) */
+async function placeIdToSave(value: string): Promise<string> {
+  if (!value.startsWith(CAT) || !trip.value) return value
+  const res = await catalog.addExisting(trip.value.id, value.slice(CAT.length), false)
+  return res.place_id
+}
 
 watch(open, (isOpen) => {
   if (!isOpen) return
   const s = editing.value
   state.day = s?.day ?? props.draft?.day ?? days.value[0] ?? ''
   state.placeId = s?.place_id ?? props.draft?.placeId ?? ''
-  state.kind = s ? (s.place_id ? 'place' : 'free') : (places.value.length || props.draft?.placeId ? 'place' : 'free')
+  state.kind = s ? (s.place_id ? 'place' : 'free') : (places.value.length || catalogChoices.value.length || props.draft?.placeId ? 'place' : 'free')
   state.title = s?.title ?? ''
   state.startTime = shortTime(s?.start_time)
   state.endTime = shortTime(s?.end_time)
@@ -49,9 +70,20 @@ function validate(s: typeof state): FormError[] {
 async function onSubmit(e: FormSubmitEvent<typeof state>) {
   if (!trip.value) return
   loading.value = true
+  let placeId: string | null = null
+  if (e.data.kind === 'place') {
+    try {
+      placeId = await placeIdToSave(e.data.placeId)
+    }
+    catch (err) {
+      loading.value = false
+      toast.add({ color: 'error', title: 'No se pudo agregar el lugar', description: errorMessage(err) })
+      return
+    }
+  }
   const fields = {
     day: e.data.day,
-    place_id: e.data.kind === 'place' ? e.data.placeId : null,
+    place_id: placeId,
     title: e.data.title.trim() || null,
     start_time: e.data.startTime || null,
     end_time: e.data.endTime || null,
@@ -69,6 +101,8 @@ async function onSubmit(e: FormSubmitEvent<typeof state>) {
 
   if (result.error) {
     toast.add({ color: 'error', title: 'No se pudo guardar', description: errorMessage(result.error) })
+    // si el lugar del catálogo ya se sumó, que se vea en el viaje
+    if (placeId !== e.data.placeId) await refresh()
     return
   }
   toast.add({ color: 'success', title: editing.value ? 'Parada actualizada' : 'Parada agregada' })
@@ -103,7 +137,7 @@ async function onSubmit(e: FormSubmitEvent<typeof state>) {
               class="w-full"
             />
             <template #help>
-              <span v-if="!places.length">Primero agrega lugares en la pestaña Lugares.</span>
+              <span v-if="!places.length && !catalogChoices.length">Busca o marca un lugar en el mapa del itinerario, o agrégalo en la pestaña Lugares.</span>
             </template>
           </UFormField>
           <UFormField label="Título (opcional)" name="title" help="Por defecto se usa el nombre del lugar">

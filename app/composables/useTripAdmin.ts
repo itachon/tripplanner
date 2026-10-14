@@ -23,7 +23,13 @@ export interface TripAdminRow {
 export interface OwnerProfile { email: string, full_name: string | null }
 
 /** Borrador para abrir el formulario de parada desde cualquier pestaña */
-export interface StopDraft { stop?: Stop | null, placeId?: string | null, day?: string | null }
+export interface StopDraft {
+  stop?: Stop | null
+  placeId?: string | null
+  day?: string | null
+  /** lugares del catálogo que el mapa muestra: también se pueden elegir (entran al viaje fuera de la votación) */
+  catalog?: CatalogPlace[]
+}
 
 /**
  * Todos los datos de un viaje para el panel de administración.

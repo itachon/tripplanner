@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { DropdownMenuItem } from '@nuxt/ui'
-import type { Stop } from '~/composables/useTripAdmin'
-import type { CatalogPlace } from '~~/shared/types/catalog'
+import type { Stop, StopDraft } from '~/composables/useTripAdmin'
 import type { MapMarker } from '~~/shared/types/map'
 import type { TimelineItem } from './ItineraryTimeline.vue'
 
@@ -9,7 +8,6 @@ const { trip, places, days, stops, stopsByDay, stopsByPlace, placeById, stats, r
 const { client } = useDb()
 const photoUrl = usePlacePhotoUrl()
 const toast = useToast()
-const catalog = useCatalog()
 
 const day = ref<string>('all')
 const hoverPlace = ref<string | null>(null)
@@ -91,28 +89,30 @@ const CARD_UI = { body: 'p-3 sm:p-3 max-h-[260px] overflow-y-auto', footer: 'px-
 
 const dayForNewStop = () => (day.value === 'all' ? null : day.value)
 
-function addStopAt(placeId: string) {
-  openStopForm({ placeId, day: dayForNewStop() })
+/** Formulario de parada nueva: también ofrece los lugares del catálogo que muestra el mapa */
+function newStop(draft: Omit<StopDraft, 'stop' | 'catalog'> = {}) {
+  openStopForm({ day: dayForNewStop(), ...draft, catalog: inView.items.value })
 }
 
-const adding = ref<string | null>(null)
-/** Suma al viaje un lugar del catálogo (fuera de la votación: ya está decidido) y abre su parada */
-async function addStopFromCatalog(c: CatalogPlace) {
-  if (!trip.value || adding.value) return
-  adding.value = c.id
-  try {
-    const res = await catalog.addExisting(trip.value.id, c.id, false)
+function addStopAt(placeId: string) {
+  newStop({ placeId })
+}
+
+// Lugares nuevos desde el buscador o un punto marcado, y del catálogo: entran al viaje
+// fuera de la votación (si se ponen en el itinerario es que ya están decididos)
+const adder = usePlaceAdder({
+  tripId: computed(() => trip.value?.id),
+  votable: false,
+  onAdded: async (placeId, created) => {
     await refresh()
     selectedPlace.value = null
-    addStopAt(res.place_id)
-  }
-  catch (err) {
-    toast.add({ color: 'error', title: 'No se pudo agregar', description: errorMessage(err) })
-  }
-  finally {
-    adding.value = null
-  }
-}
+    addStopAt(placeId)
+    // la ficha automática (historia, horarios, foto) se busca de fondo
+    if (created) $fetch(`/api/admin/places/${placeId}/enrich`, { method: 'POST' }).then(() => refresh()).catch(() => {})
+  },
+  onEdited: () => refresh(),
+})
+const near = computed(() => centroid(places.value))
 
 const route = computed<[number, number][] | null>(() => {
   if (day.value === 'all') return null
@@ -221,7 +221,7 @@ async function confirmDelete() {
           :description="trip?.itinerary_published ? 'Los viajeros lo ven desde su link.' : 'Mientras esté oculto, puedes armarlo con calma.'"
           @update:model-value="togglePublish"
         />
-        <UButton icon="i-lucide-plus" @click="openStopForm({ day: day === 'all' ? null : day })">
+        <UButton icon="i-lucide-plus" @click="newStop()">
           Agregar parada
         </UButton>
       </div>
@@ -255,7 +255,7 @@ async function confirmDelete() {
           icon="i-lucide-calendar-plus"
           title="El itinerario está vacío"
           description="Agrega paradas con día y horario. Pueden ser lugares del mapa o actividades libres como vuelos o tiempo libre."
-          :actions="[{ label: 'Agregar parada', icon: 'i-lucide-plus', onClick: () => openStopForm({}) }]"
+          :actions="[{ label: 'Agregar parada', icon: 'i-lucide-plus', onClick: () => newStop() }]"
           class="rounded-lg border border-dashed border-default bg-default py-12"
         />
         <ItineraryTimeline
@@ -270,7 +270,7 @@ async function confirmDelete() {
           @move="moveToDay"
         >
           <template #dayActions="{ day: d }">
-            <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-plus" @click="openStopForm({ day: d })">
+            <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-plus" @click="newStop({ day: d })">
               Agregar
             </UButton>
           </template>
@@ -283,12 +283,34 @@ async function confirmDelete() {
       </div>
 
       <div class="order-1 lg:order-2">
+        <div class="mb-2 flex items-start gap-2">
+          <PlaceSearch
+            v-if="trip"
+            :trip-id="trip.id"
+            :near="near"
+            class="min-w-0 flex-1"
+            @select="adder.onSearchSelect"
+            @select-catalog="adder.addFromCatalog"
+          />
+          <UButton
+            :color="adder.picking ? 'warning' : 'neutral'"
+            :variant="adder.picking ? 'soft' : 'outline'"
+            icon="i-lucide-crosshair"
+            class="shrink-0"
+            @click="adder.picking = !adder.picking"
+          >
+            {{ adder.picking ? 'Cancelar' : 'Marcar' }}
+          </UButton>
+        </div>
         <div class="h-[460px] overflow-hidden rounded-lg border border-default sm:h-[600px] lg:sticky lg:top-20 lg:h-[calc(100dvh-6rem)] lg:min-h-[600px] lg:max-h-[900px]">
           <TripMap
             :markers="markers"
             :route="route"
             :highlight-id="hoverPlace"
             :selected-id="selectedPlace"
+            :picking="adder.picking"
+            :pending-pin="adder.pendingPin"
+            @pick="adder.onPick"
             :fit-key="day"
             @select="selectedPlace = $event"
             @bounds="inView.load"
@@ -314,8 +336,8 @@ async function confirmDelete() {
                       color="primary"
                       variant="soft"
                       icon="i-lucide-calendar-plus"
-                      :loading="adding === catalogById.get(marker.id)!.id"
-                      @click="addStopFromCatalog(catalogById.get(marker.id)!)"
+                      :loading="adder.adding === catalogById.get(marker.id)!.id"
+                      @click="adder.addFromCatalog(catalogById.get(marker.id)!)"
                     >
                       Agregar parada
                     </UButton>
@@ -360,6 +382,8 @@ async function confirmDelete() {
         </p>
       </div>
     </div>
+
+    <PlaceAddDialogs :adder="adder" />
 
     <ConfirmModal
       v-model:open="deleteOpen"

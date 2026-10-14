@@ -7,6 +7,8 @@ export interface PlaceDraft {
   place?: Place | null
   /** resultado de la búsqueda o punto marcado en el mapa */
   result?: PlaceSearchResult | null
+  /** valor inicial de "Votación" para un lugar nuevo */
+  votable?: boolean
 }
 
 const props = defineProps<{ draft: PlaceDraft | null }>()
@@ -50,7 +52,7 @@ watch(open, (isOpen) => {
   state.address = p?.address ?? r?.address ?? ''
   state.category = p?.category ?? r?.category ?? ''
   state.description = p?.description ?? ''
-  state.votable = p?.votable ?? true
+  state.votable = p?.votable ?? props.draft?.votable ?? true
   state.isPublic = p?.is_public ?? true
   coords.value = p ? { latitude: p.latitude, longitude: p.longitude } : r ? { latitude: r.latitude, longitude: r.longitude } : null
   newPhoto.value = null
