@@ -10,6 +10,17 @@ export default defineNuxtConfig({
   // Los componentes se usan por su nombre de archivo, sin prefijo de carpeta
   components: [{ path: '~/components', pathPrefix: false }],
 
+  // Iconos de las categorías de lugares (vienen de la base): que no dependan de la red
+  icon: {
+    clientBundle: {
+      icons: [
+        'lucide:landmark', 'lucide:castle', 'lucide:church', 'lucide:theater', 'lucide:trees',
+        'lucide:mountain', 'lucide:bed-double', 'lucide:utensils', 'lucide:coffee', 'lucide:wine',
+        'lucide:shopping-bag', 'lucide:train-front', 'lucide:map-pin',
+      ],
+    },
+  },
+
   supabase: {
     types: '~~/shared/types/database.types.ts',
     redirectOptions: {

@@ -293,6 +293,53 @@ export type Database = {
           },
         ]
       }
+      place_categories: {
+        Row: {
+          color: string
+          icon: string
+          key: string
+          label_es: string
+          sort_order: number
+        }
+        Insert: {
+          color: string
+          icon: string
+          key: string
+          label_es: string
+          sort_order: number
+        }
+        Update: {
+          color?: string
+          icon?: string
+          key?: string
+          label_es?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
+      place_category_tags: {
+        Row: {
+          category_key: string
+          tag: string
+        }
+        Insert: {
+          category_key: string
+          tag: string
+        }
+        Update: {
+          category_key?: string
+          tag?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "place_category_tags_category_key_fkey"
+            columns: ["category_key"]
+            isOneToOne: false
+            referencedRelation: "place_categories"
+            referencedColumns: ["key"]
+          },
+        ]
+      }
       place_info: {
         Row: {
           catalog_place_id: string
