@@ -633,6 +633,23 @@ export type Database = {
         Returns: string
       }
       budget_extras_valid: { Args: { p: Json }; Returns: boolean }
+      catalog_in_bounds: {
+        Args: {
+          p_east: number
+          p_exclude_trip?: string
+          p_limit?: number
+          p_north: number
+          p_south: number
+          p_west: number
+        }
+        Returns: Database["public"]["CompositeTypes"]["catalog_place_row"][]
+        SetofOptions: {
+          from: "*"
+          to: "catalog_place_row"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       catalog_near: {
         Args: {
           p_exclude_trip?: string
