@@ -129,6 +129,69 @@ export type Database = {
           },
         ]
       }
+      catalog_places: {
+        Row: {
+          address: string | null
+          category: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          is_public: boolean
+          latitude: number
+          longitude: number
+          mapbox_id: string | null
+          name: string
+          origin_trip_id: string | null
+          photo_path: string | null
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          category?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_public?: boolean
+          latitude: number
+          longitude: number
+          mapbox_id?: string | null
+          name: string
+          origin_trip_id?: string | null
+          photo_path?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          category?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_public?: boolean
+          latitude?: number
+          longitude?: number
+          mapbox_id?: string | null
+          name?: string
+          origin_trip_id?: string | null
+          photo_path?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "catalog_places_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "catalog_places_origin_trip_id_fkey"
+            columns: ["origin_trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       itinerary_stops: {
         Row: {
           created_at: string
@@ -232,6 +295,7 @@ export type Database = {
       }
       place_info: {
         Row: {
+          catalog_place_id: string
           created_at: string
           history: string | null
           history_source: string | null
@@ -240,14 +304,13 @@ export type Database = {
           phone: string | null
           photo_credit: string | null
           photo_url: string | null
-          place_id: string
-          trip_id: string
           updated_at: string
           website: string | null
           wikidata_id: string | null
           wikipedia_url: string | null
         }
         Insert: {
+          catalog_place_id: string
           created_at?: string
           history?: string | null
           history_source?: string | null
@@ -256,14 +319,13 @@ export type Database = {
           phone?: string | null
           photo_credit?: string | null
           photo_url?: string | null
-          place_id: string
-          trip_id: string
           updated_at?: string
           website?: string | null
           wikidata_id?: string | null
           wikipedia_url?: string | null
         }
         Update: {
+          catalog_place_id?: string
           created_at?: string
           history?: string | null
           history_source?: string | null
@@ -272,8 +334,6 @@ export type Database = {
           phone?: string | null
           photo_credit?: string | null
           photo_url?: string | null
-          place_id?: string
-          trip_id?: string
           updated_at?: string
           website?: string | null
           wikidata_id?: string | null
@@ -281,86 +341,53 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "place_info_place_id_fkey"
-            columns: ["place_id"]
+            foreignKeyName: "place_info_catalog_place_fk"
+            columns: ["catalog_place_id"]
             isOneToOne: true
-            referencedRelation: "places"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "place_info_trip_id_fkey"
-            columns: ["trip_id"]
-            isOneToOne: false
-            referencedRelation: "trips"
+            referencedRelation: "catalog_places"
             referencedColumns: ["id"]
           },
         ]
       }
       places: {
         Row: {
-          address: string | null
-          ai_error: string | null
-          ai_generated_at: string | null
-          ai_info: Json | null
-          ai_requested_at: string | null
-          ai_status: string | null
-          category: string | null
+          catalog_place_id: string
           created_at: string
           description: string | null
           id: string
-          latitude: number
-          longitude: number
-          mapbox_id: string | null
-          name: string
-          photo_path: string | null
           sort_order: number
           trip_id: string
           updated_at: string
           votable: boolean
         }
         Insert: {
-          address?: string | null
-          ai_error?: string | null
-          ai_generated_at?: string | null
-          ai_info?: Json | null
-          ai_requested_at?: string | null
-          ai_status?: string | null
-          category?: string | null
+          catalog_place_id: string
           created_at?: string
           description?: string | null
           id?: string
-          latitude: number
-          longitude: number
-          mapbox_id?: string | null
-          name: string
-          photo_path?: string | null
           sort_order?: number
           trip_id: string
           updated_at?: string
           votable?: boolean
         }
         Update: {
-          address?: string | null
-          ai_error?: string | null
-          ai_generated_at?: string | null
-          ai_info?: Json | null
-          ai_requested_at?: string | null
-          ai_status?: string | null
-          category?: string | null
+          catalog_place_id?: string
           created_at?: string
           description?: string | null
           id?: string
-          latitude?: number
-          longitude?: number
-          mapbox_id?: string | null
-          name?: string
-          photo_path?: string | null
           sort_order?: number
           trip_id?: string
           updated_at?: string
           votable?: boolean
         }
         Relationships: [
+          {
+            foreignKeyName: "places_catalog_place_fk"
+            columns: ["catalog_place_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_places"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "places_trip_id_fkey"
             columns: ["trip_id"]
@@ -556,6 +583,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _distance_m: {
+        Args: { lat1: number; lat2: number; lng1: number; lng2: number }
+        Returns: number
+      }
       _member_assert_open: { Args: { p_trip_id: string }; Returns: undefined }
       _member_find: {
         Args: { p_token: string }
@@ -602,6 +633,53 @@ export type Database = {
         Returns: string
       }
       budget_extras_valid: { Args: { p: Json }; Returns: boolean }
+      catalog_near: {
+        Args: {
+          p_exclude_trip?: string
+          p_lat: number
+          p_lng: number
+          p_meters?: number
+        }
+        Returns: Database["public"]["CompositeTypes"]["catalog_place_row"][]
+        SetofOptions: {
+          from: "*"
+          to: "catalog_place_row"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      catalog_place_editable: { Args: { p_id: string }; Returns: boolean }
+      catalog_place_update: {
+        Args: { p_id: string; p_patch: Json }
+        Returns: undefined
+      }
+      catalog_place_visible: { Args: { p_id: string }; Returns: boolean }
+      catalog_places_visible: {
+        Args: never
+        Returns: Database["public"]["CompositeTypes"]["catalog_place_row"][]
+        SetofOptions: {
+          from: "*"
+          to: "catalog_place_row"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      catalog_search: {
+        Args: {
+          p_exclude_trip?: string
+          p_lat?: number
+          p_limit?: number
+          p_lng?: number
+          p_query: string
+        }
+        Returns: Database["public"]["CompositeTypes"]["catalog_place_row"][]
+        SetofOptions: {
+          from: "*"
+          to: "catalog_place_row"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       is_trip_admin: { Args: { p_trip_id: string }; Returns: boolean }
       is_trip_owner: { Args: { p_trip_id: string }; Returns: boolean }
       member_get_trip: { Args: { p_token: string }; Returns: Json }
@@ -629,7 +707,27 @@ export type Database = {
         Args: { p_item_id: string; p_member_ids: string[] }
         Returns: undefined
       }
+      storage_catalog_place_id: { Args: { p_name: string }; Returns: string }
+      storage_photo_unreferenced: { Args: { p_name: string }; Returns: boolean }
       storage_trip_id: { Args: { p_name: string }; Returns: string }
+      trip_add_place: {
+        Args: {
+          p_catalog_place_id?: string
+          p_description?: string
+          p_new?: Json
+          p_trip_id: string
+          p_votable?: boolean
+        }
+        Returns: Json
+      }
+      trip_covers: {
+        Args: never
+        Returns: {
+          info_photo_url: string
+          photo_path: string
+          trip_id: string
+        }[]
+      }
     }
     Enums: {
       budget_category:
@@ -642,7 +740,20 @@ export type Database = {
       member_status: "pending" | "accepted" | "declined"
     }
     CompositeTypes: {
-      [_ in never]: never
+      catalog_place_row: {
+        id: string | null
+        name: string | null
+        address: string | null
+        latitude: number | null
+        longitude: number | null
+        mapbox_id: string | null
+        category: string | null
+        photo_path: string | null
+        is_public: boolean | null
+        is_mine: boolean | null
+        editable: boolean | null
+        used_elsewhere: boolean | null
+      }
     }
   }
 }
