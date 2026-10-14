@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Map as MapboxMap, Marker as MapboxMarker, GeoJSONSource, MapMouseEvent } from 'mapbox-gl'
-import type { MapMarker } from '~~/shared/types/map'
+import type { MapMarker, RouteSegment } from '~~/shared/types/map'
 import type { MapBox } from '~/utils/map-bounds'
 import { h, render, getCurrentInstance } from 'vue'
 import MapMarkerDot from './MapMarkerDot.vue'
@@ -11,8 +11,8 @@ const props = withDefaults(defineProps<{
   selectedId?: string | null
   /** resaltado desde fuera (ej. al pasar el mouse por la lista) */
   highlightId?: string | null
-  /** línea que une puntos en orden: [lng, lat][] */
-  route?: [number, number][] | null
+  /** recorrido entre puntos, por tramos (por calles o en línea recta) */
+  route?: RouteSegment[] | null
   /** modo "marcar en el mapa": el clic emite pick */
   picking?: boolean
   pendingPin?: { latitude: number, longitude: number } | null
@@ -173,11 +173,13 @@ function updateCardPos() {
 function syncRoute() {
   const m = map.value
   if (!m || !loaded.value) return
-  const coords = props.route ?? []
   const data = {
-    type: 'Feature' as const,
-    properties: {},
-    geometry: { type: 'LineString' as const, coordinates: coords.length >= 2 ? coords : [] },
+    type: 'FeatureCollection' as const,
+    features: (props.route ?? []).filter(s => s.coordinates.length >= 2).map(s => ({
+      type: 'Feature' as const,
+      properties: { mode: s.mode },
+      geometry: { type: 'LineString' as const, coordinates: s.coordinates },
+    })),
   }
   const src = m.getSource('trip-route') as GeoJSONSource | undefined
   if (src) {
@@ -185,13 +187,22 @@ function syncRoute() {
     return
   }
   m.addSource('trip-route', { type: 'geojson', data })
-  m.addLayer({
-    id: 'trip-route',
-    type: 'line',
-    source: 'trip-route',
-    layout: { 'line-join': 'round', 'line-cap': 'round' },
-    paint: { 'line-color': ROUTE_COLOR, 'line-width': 3, 'line-opacity': 0.75, 'line-dasharray': [1.5, 1.5] },
-  })
+  // Un estilo por modo: en auto, línea continua; a pie, puntos; sin ruta todavía, recta punteada
+  const layers: { mode: string, paint: Record<string, unknown> }[] = [
+    { mode: 'driving', paint: { 'line-width': 4, 'line-opacity': 0.8 } },
+    { mode: 'walking', paint: { 'line-width': 4, 'line-opacity': 0.9, 'line-dasharray': [0, 1.6] } },
+    { mode: 'straight', paint: { 'line-width': 3, 'line-opacity': 0.5, 'line-dasharray': [1.5, 1.5] } },
+  ]
+  for (const l of layers) {
+    m.addLayer({
+      id: `trip-route-${l.mode}`,
+      type: 'line',
+      source: 'trip-route',
+      filter: ['==', ['get', 'mode'], l.mode],
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': ROUTE_COLOR, ...l.paint },
+    })
+  }
 }
 
 function syncPendingPin() {

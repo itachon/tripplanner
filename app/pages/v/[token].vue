@@ -174,6 +174,7 @@ const timelineItems = computed<TimelineItem[]>(() => itinerary.value.map(s => ({
   notes: s.notes,
   place_id: s.place_id,
   number: itDay.value === 'all' ? undefined : numbers.value.get(s.id),
+  legAfter: itDay.value === 'all' ? null : itLegAfter.value.get(s.id) ?? null,
 })))
 const itStops = computed(() =>
   itinerary.value.filter(s => s.place_id && placeById.value.has(s.place_id) && (itDay.value === 'all' || s.day === itDay.value)),
@@ -197,12 +198,14 @@ const itMarkers = computed<MapMarker[]>(() => {
   }
   return out
 })
-const itRoute = computed<[number, number][] | null>(() => itDay.value === 'all'
-  ? null
-  : itStops.value.map(s => {
+// Recorrido por calles entre las paradas del día elegido (con "Todo el viaje" no hay recorrido)
+const { segments: itSegments, legAfter: itLegAfter } = useRouteLegs(() => (itDay.value === 'all'
+  ? []
+  : itStops.value.map((s) => {
       const p = placeById.value.get(s.place_id!)!
-      return [p.longitude, p.latitude] as [number, number]
-    }))
+      return { id: s.id, latitude: p.latitude, longitude: p.longitude }
+    })))
+const itRoute = computed(() => (itDay.value === 'all' ? null : itSegments.value))
 const itSelected = ref<string | null>(null)
 const itHover = ref<string | null>(null)
 const stopsAt = (placeId: string) => itStops.value.filter(s => s.place_id === placeId)

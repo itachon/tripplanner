@@ -12,6 +12,8 @@ export interface TimelineItem {
   place_id: string | null
   /** número del pin en el mapa (solo paradas con lugar) */
   number?: number
+  /** cómo se llega desde esta parada a la siguiente con lugar (a pie o en auto) */
+  legAfter?: { mode: 'walking' | 'driving', text: string } | null
 }
 
 const props = defineProps<{
@@ -149,6 +151,10 @@ function timeRange(it: TimelineItem) {
             </p>
             <p v-if="it.notes" class="mt-1 whitespace-pre-line text-sm text-muted">
               {{ it.notes }}
+            </p>
+            <p v-if="it.legAfter" class="mt-1.5 flex items-center gap-1 text-xs text-dimmed" data-testid="leg-after">
+              <UIcon :name="it.legAfter.mode === 'walking' ? 'i-lucide-footprints' : 'i-lucide-car'" class="size-3.5" />
+              {{ it.legAfter.mode === 'walking' ? 'A pie' : 'En auto' }} hasta la siguiente: {{ it.legAfter.text }}
             </p>
           </div>
           <div v-if="$slots.actions || draggable" class="flex shrink-0 items-start gap-0.5" @click.stop>

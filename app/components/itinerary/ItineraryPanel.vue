@@ -42,6 +42,7 @@ const items = computed<TimelineItem[]>(() => stops.value.map(s => ({
   notes: s.notes,
   place_id: s.place_id,
   number: day.value === 'all' ? undefined : numbers.value.get(s.id),
+  legAfter: day.value === 'all' ? null : legAfter.value.get(s.id) ?? null,
 })))
 
 const visibleStops = computed(() =>
@@ -118,13 +119,14 @@ const adder = usePlaceAdder({
 })
 const near = computed(() => centroid(places.value))
 
-const route = computed<[number, number][] | null>(() => {
-  if (day.value === 'all') return null
-  return visibleStops.value.map(s => {
-    const p = placeById.value.get(s.place_id!)!
-    return [p.longitude, p.latitude] as [number, number]
-  })
-})
+// Recorrido por calles entre las paradas del día elegido (con "Todo el viaje" no hay recorrido)
+const { segments: routeSegments, legAfter } = useRouteLegs(() => (day.value === 'all'
+  ? []
+  : visibleStops.value.map((s) => {
+      const p = placeById.value.get(s.place_id!)!
+      return { id: s.id, latitude: p.latitude, longitude: p.longitude }
+    })))
+const route = computed(() => (day.value === 'all' ? null : routeSegments.value))
 
 const stopsAtPlace = (placeId: string) => visibleStops.value.filter(s => s.place_id === placeId)
 

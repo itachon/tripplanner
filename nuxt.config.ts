@@ -17,6 +17,8 @@ export default defineNuxtConfig({
         'lucide:landmark', 'lucide:castle', 'lucide:church', 'lucide:theater', 'lucide:trees',
         'lucide:mountain', 'lucide:bed-double', 'lucide:utensils', 'lucide:coffee', 'lucide:wine',
         'lucide:shopping-bag', 'lucide:train-front', 'lucide:map-pin',
+        // modo de cada tramo del recorrido del itinerario
+        'lucide:footprints', 'lucide:car',
       ],
     },
   },
