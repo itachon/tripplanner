@@ -366,6 +366,14 @@ check('p_limit mayor de 5 se recorta a 5', (await as('authenticated', C, 'select
 const near = async (lat, lng) => (await as('authenticated', C, 'select id from public.catalog_near($1, $2, 100, $3)', [lat, lng, otherTrip.id])).rows.map(r => r.id)
 check('cercanía: a unos metros lo encuentra', (await near(37.5513, 126.9883)).includes(cTorre))
 check('cercanía: a más de 100 m no', !(await near(37.5612, 126.9882)).includes(cTorre))
+const inBox = async (uid, box, tripId, limit = 200) => (await as('authenticated', uid, 'select id from public.catalog_in_bounds($1, $2, $3, $4, $5, $6)', [...box, tripId, limit])).rows.map(r => r.id)
+check('zona del mapa: encuentra los públicos dentro', (await inBox(C, [37.5, 126.9, 37.6, 127.1], otherTrip.id)).includes(cTorre))
+check('zona del mapa: no lista lo que el viaje ya tiene', !(await inBox(A, [37.5, 126.9, 37.6, 127.1], trip.id)).includes(cTorre))
+check('zona del mapa: fuera de la zona no aparece', !(await inBox(C, [0, 0, 1, 1], otherTrip.id)).includes(cTorre))
+check('zona del mapa: los privados no aparecen, ni a su creador', !(await inBox(A, [3, 3, 5, 5], trip.id)).includes(sharedPriv.catalog_place_id) && !(await inBox(C, [3, 3, 5, 5], otherTrip.id)).includes(sharedPriv.catalog_place_id))
+check('zona del mapa: oeste mayor que este cruza el antimeridiano', !(await inBox(C, [37.5, 127.1, 37.6, 126.9], otherTrip.id)).includes(cTorre) && (await inBox(C, [37.5, 126.9, 37.6, -170], otherTrip.id)).includes(cTorre))
+check('zona del mapa: respeta el límite', (await inBox(C, [10, 20, 17, 27], null, 3)).length === 3)
+check('zona del mapa: anon no la puede usar', /permission denied/.test(await err('anon', null, 'select * from public.catalog_in_bounds(0, 0, 1, 1, null, 10)')))
 
 // Portadas y fotos
 check('el creador guarda la foto del lugar', (await patch(B, cTorre, { photo_path: `catalog/${cTorre}/a.webp` })) === null)
