@@ -69,6 +69,7 @@ const markers = computed<MapMarker[]>(() => {
       label: day.value === 'all' ? String(days.value.indexOf(s.day) + 1) : String(numbers.value.get(s.id) ?? ''),
       tone: 'primary',
       title: p.name,
+      category: p.category,
     })
   }
   // Lo que aún no está en el itinerario va en celeste punteado: lugares del viaje sin
@@ -77,7 +78,7 @@ const markers = computed<MapMarker[]>(() => {
   const fit = !out.length
   for (const p of places.value) {
     if (stopsByPlace.value.get(p.id)?.length) continue
-    out.push({ id: p.id, latitude: p.latitude, longitude: p.longitude, label: '+', tone: 'catalog', title: p.name, fit })
+    out.push({ id: p.id, latitude: p.latitude, longitude: p.longitude, label: '+', tone: 'catalog', title: p.name, category: p.category, fit })
   }
   out.push(...inView.markers.value)
   return out

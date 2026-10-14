@@ -95,6 +95,7 @@ const markers = computed<MapMarker[]>(() => [
     label: String(numberOf.value.get(p.id)),
     tone: p.votable ? 'primary' as const : 'off' as const,
     title: p.name,
+    category: p.category,
   })),
   ...inView.markers.value,
 ])

@@ -99,6 +99,7 @@ const placeMarkers = computed<MapMarker[]>(() => votable.value.map(p => ({
   label: String(orderOf.value.get(p.id)),
   tone: p.voted ? 'success' : 'primary',
   title: p.name,
+  category: p.category,
 })))
 
 const canVote = computed(() => accepted.value && isOpen.value)
@@ -191,6 +192,7 @@ const itMarkers = computed<MapMarker[]>(() => {
       label: itDay.value === 'all' ? String(days.value.indexOf(s.day) + 1) : String(numbers.value.get(s.id) ?? ''),
       tone: 'primary',
       title: p.name,
+      category: p.category,
     })
   }
   return out

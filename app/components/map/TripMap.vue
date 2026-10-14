@@ -2,6 +2,8 @@
 import type { Map as MapboxMap, Marker as MapboxMarker, GeoJSONSource, MapMouseEvent } from 'mapbox-gl'
 import type { MapMarker } from '~~/shared/types/map'
 import type { MapBox } from '~/utils/map-bounds'
+import { h, render, getCurrentInstance } from 'vue'
+import MapMarkerDot from './MapMarkerDot.vue'
 
 
 const props = withDefaults(defineProps<{
@@ -66,40 +68,21 @@ const activeId = computed(() => hoveredId.value ?? pinnedId.value)
 const activeMarker = computed(() => props.markers.find(m => m.id === activeId.value) ?? null)
 const isPinned = computed(() => !!pinnedId.value && activeId.value === pinnedId.value)
 
-const TONES: Record<NonNullable<MapMarker['tone']>, string> = {
-  primary: 'bg-primary text-inverted',
-  success: 'bg-success text-inverted',
-  neutral: 'bg-neutral-600 text-white',
-  warning: 'bg-warning text-white',
-  off: 'bg-sky-300 text-sky-950',
-  catalog: 'bg-sky-200/80 text-sky-800',
-}
+// Los puntos se montan con render(): necesitan el contexto de la app para <UIcon>
+const appContext = getCurrentInstance()!.appContext
+const { resolve: resolveCategory, loaded: categoriesLoaded } = usePlaceCategories()
 
-const small = (m: MapMarker) => m.tone === 'off' || m.tone === 'catalog'
 /** Los puntos del catálogo aparecen y desaparecen al mover el mapa: no deciden el encuadre */
 const tripMarkers = computed(() => props.markers.filter(m => m.fit ?? m.tone !== 'catalog'))
 
-// El estilo va en un círculo interior: el <button> exterior es de Mapbox, que
-// le pone sus clases (mapboxgl-marker, position absolute) y lo ubica con
-// `transform`. Si se le pisa className o se anima su transform, el punto salta.
-function markerClass(m: MapMarker) {
-  const active = m.id === activeId.value || m.id === props.highlightId
-  return [
-    'trip-marker flex items-center justify-center rounded-full border-2 shadow-md',
-    'font-bold transition-[scale,box-shadow] duration-150',
-    m.tone === 'catalog' ? 'border-dashed border-sky-600' : 'border-white',
-    small(m) ? 'size-6 text-[10px]' : 'size-8 text-xs',
-    TONES[m.tone ?? 'primary'],
-    m.dimmed && !active ? 'opacity-55' : '',
-    active ? 'scale-125 ring-4 ring-primary/35' : 'group-hover:scale-110',
-  ].join(' ')
-}
+// El dibujo va en MapMarkerDot, dentro del <button> que es de Mapbox: Mapbox le pone
+// sus clases (mapboxgl-marker, position absolute) y lo ubica con `transform`.
+// Si se le pisa className o se anima su transform, el punto salta.
 
 function createMarkerEl(m: MapMarker) {
   const el = document.createElement('button')
   el.type = 'button'
   el.className = 'group cursor-pointer'
-  el.appendChild(document.createElement('span'))
   el.dataset.markerId = m.id
   el.addEventListener('mouseenter', () => { hoveredId.value = m.id })
   el.addEventListener('mouseleave', () => { if (hoveredId.value === m.id) hoveredId.value = null })
@@ -113,12 +96,12 @@ function createMarkerEl(m: MapMarker) {
 }
 
 function paintMarker(m: MapMarker, el: HTMLButtonElement, marker: MapboxMarker) {
-  const dot = el.firstElementChild as HTMLSpanElement
-  dot.className = markerClass(m)
-  dot.textContent = m.label ?? ''
+  const active = m.id === activeId.value || m.id === props.highlightId
+  const vnode = h(MapMarkerDot, { marker: m, category: resolveCategory(m.category), active })
+  vnode.appContext = appContext
+  render(vnode, el)
   el.setAttribute('aria-label', m.title)
   el.title = ''
-  const active = m.id === activeId.value || m.id === props.highlightId
   // Mapbox ordena los marcadores por orden de inserción; subimos el activo
   el.style.zIndex = active ? '5' : m.dimmed || m.tone === 'catalog' ? '1' : '2'
   const ll = marker.getLngLat()
@@ -130,6 +113,7 @@ function syncMarkers() {
   const keep = new Set(props.markers.map(m => m.id))
   for (const [id, { marker }] of markerEls) {
     if (!keep.has(id)) {
+      render(null, markerEls.get(id)!.el)
       marker.remove()
       markerEls.delete(id)
     }
@@ -273,8 +257,7 @@ function findNearestPoi(point: { x: number, y: number }): { name: string, catego
   const props = best?.properties
   const name = props?.name_es || props?.name_en || props?.name
   if (!name) return null
-  const category = props?.class || props?.maki || props?.type || null
-  return { name: String(name), category: category ? String(category) : null }
+  return { name: String(name), category: pickPoiCategory(props) }
 }
 
 onMounted(async () => {
@@ -349,7 +332,10 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   resizeObs?.disconnect()
-  for (const { marker } of markerEls.values()) marker.remove()
+  for (const { marker, el } of markerEls.values()) {
+    render(null, el)
+    marker.remove()
+  }
   markerEls.clear()
   pendingMarker?.remove()
   map.value?.remove()
@@ -358,6 +344,7 @@ onBeforeUnmount(() => {
 
 watch(() => props.markers, syncMarkers, { deep: true })
 watch([activeId, () => props.highlightId], syncMarkers)
+watch(categoriesLoaded, syncMarkers)
 watch(() => props.route, syncRoute, { deep: true })
 watch(() => props.pendingPin, syncPendingPin, { deep: true })
 

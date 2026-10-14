@@ -15,4 +15,6 @@ export interface MapMarker {
   /** cuenta para encuadrar el mapa (por defecto, todos menos los de tono catalog) */
   fit?: boolean
   title: string
+  /** etiqueta guardada del lugar (ej. 'museum'): define icono y color del punto */
+  category?: string | null
 }

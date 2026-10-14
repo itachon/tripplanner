@@ -38,6 +38,7 @@ export function useCatalogInView(tripId: Ref<string | undefined>, tripKey: () =>
     label: '+',
     tone: 'catalog',
     title: `${c.name} (del catálogo)`,
+    category: c.category,
   })))
 
   /** Ficha automática de un punto del catálogo: se pide una vez, al fijar su tarjeta */
