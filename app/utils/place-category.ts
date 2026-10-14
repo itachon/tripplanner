@@ -22,7 +22,10 @@ export function buildCategoryIndex(p: PlaceCategoriesPayload): CategoryIndex {
  */
 export function categoryOf(tag: string | null | undefined, index: CategoryIndex): PlaceCategory | null {
   if (!index.byKey.size) return null
-  const key = index.byTag.get((tag ?? '').trim().toLowerCase()) ?? OTHER_CATEGORY
+  const t = (tag ?? '').trim().toLowerCase()
+  // Los maki de Mapbox van con guion ('place-of-worship', 'religious-christian'):
+  // se prueba tal cual, con guion bajo y por su primera parte.
+  const key = index.byTag.get(t) ?? index.byTag.get(t.replaceAll('-', '_')) ?? index.byTag.get(t.split('-')[0]!) ?? OTHER_CATEGORY
   return index.byKey.get(key) ?? index.byKey.get(OTHER_CATEGORY) ?? null
 }
 

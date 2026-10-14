@@ -75,13 +75,13 @@ const list = computed(() => {
   return arr
 })
 
-// La lista separa lo que está en votación de lo guardado fuera de ella (punto celeste en el mapa)
+// La lista separa lo que está en votación de lo guardado fuera de ella (punto más chico y tenue en el mapa)
 const groups = computed(() => [
   { key: 'in', title: null, items: list.value.filter(x => x.votable) },
   { key: 'out', title: 'Guardados, fuera de la votación', items: list.value.filter(x => !x.votable) },
 ].filter(g => g.items.length))
 
-// ---- Lugares del catálogo en la zona visible (celeste punteado, para sumarlos con un clic) ----
+// ---- Lugares del catálogo en la zona visible (borde punteado, para sumarlos con un clic) ----
 const inView = useCatalogInView(computed(() => trip.value?.id), () => places.value.map(p => p.catalog_place_id).join(','))
 const catalogById = inView.byMarkerId
 const catalogInfo = inView.info
@@ -162,7 +162,7 @@ function menu(p: Place): DropdownMenuItem[][] {
       { label: 'Mover arriba', icon: 'i-lucide-arrow-up', disabled: idx <= 0, onSelect: () => move(p, -1) },
       { label: 'Mover abajo', icon: 'i-lucide-arrow-down', disabled: idx === places.value.length - 1, onSelect: () => move(p, 1) },
     ],
-    // Un lugar en votación primero sale de ella (queda guardado, en celeste); el borrado
+    // Un lugar en votación primero sale de ella (queda guardado, más tenue); el borrado
     // definitivo solo está disponible cuando ya está fuera.
     p.votable
       ? [{ label: 'Quitar de la votación', icon: 'i-lucide-circle-minus', onSelect: () => { toggleVotable(p) } }]
@@ -339,7 +339,7 @@ function showDetail(p: Place) {
           {{ stats.places }} lugares · {{ stats.votable }} en votación · {{ stats.votes }} votos
         </p>
         <p v-if="inView.items.value.length" class="text-xs text-muted">
-          Los puntos celestes punteados con "+" son lugares del catálogo: tócalos para agregarlos.
+          Los puntos chicos con borde punteado son lugares del catálogo: tócalos para agregarlos.
         </p>
         <template v-for="g in groups" :key="g.key">
           <div v-if="g.title" class="pt-2">
@@ -347,7 +347,7 @@ function showDetail(p: Place) {
               {{ g.title }}
             </p>
             <p class="text-xs text-muted">
-              Siguen en el mapa como puntos celestes. Puedes volver a ponerlos en votación o borrarlos.
+              Siguen en el mapa como puntos más chicos y tenues. Puedes volver a ponerlos en votación o borrarlos.
             </p>
           </div>
           <ul class="divide-y divide-default overflow-hidden rounded-lg border border-default bg-default">

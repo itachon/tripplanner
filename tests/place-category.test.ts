@@ -38,6 +38,22 @@ test('categoryOf: desconocida o vacía es Otros', () => {
   assert.equal(categoryOf('', index)?.key, 'other')
 })
 
+test('categoryOf: valores maki de Mapbox con guion (los que da marcar un ícono del mapa)', () => {
+  const idx = buildCategoryIndex({
+    categories: payload.categories.concat([{ key: 'worship', icon: 'i-lucide-church', color: '#be185d', sort_order: 3, label_es: 'Templos' }]),
+    tags: payload.tags.concat([
+      { tag: 'place_of_worship', category_key: 'worship' },
+      { tag: 'religious', category_key: 'worship' },
+      { tag: 'art_gallery', category_key: 'museum' },
+    ]),
+  })
+  assert.equal(categoryOf(pickPoiCategory({ maki: 'place-of-worship', class: 'religion' }), idx)?.key, 'worship')
+  assert.equal(categoryOf(pickPoiCategory({ maki: 'religious-christian', class: 'religion' }), idx)?.key, 'worship')
+  assert.equal(categoryOf('art-gallery', idx)?.key, 'museum')
+  assert.equal(categoryOf('museum-x', idx)?.key, 'museum')
+  assert.equal(categoryOf('rail-metro', idx)?.key, 'other')
+})
+
 test('categoryOf: sin categorías cargadas es null', () => {
   assert.equal(categoryOf('museum', buildCategoryIndex({ categories: [], tags: [] })), null)
 })

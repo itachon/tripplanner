@@ -72,7 +72,7 @@ const markers = computed<MapMarker[]>(() => {
       category: p.category,
     })
   }
-  // Lo que aún no está en el itinerario va en celeste punteado: lugares del viaje sin
+  // Lo que aún no está en el itinerario va con borde punteado: lugares del viaje sin
   // ninguna parada y lugares del catálogo de la zona visible
   // (sin paradas a la vista, el mapa se encuadra en los lugares del viaje)
   const fit = !out.length
@@ -392,7 +392,7 @@ async function confirmDelete() {
           El número de cada punto indica el día. Elige un día para ver el recorrido en orden.
         </p>
         <p v-if="markers.some(m => m.tone === 'catalog')" class="mt-1 text-xs text-dimmed">
-          Los puntos celestes punteados con "+" aún no están en el itinerario: tócalos para agregar una parada.
+          Los puntos chicos con borde punteado aún no están en el itinerario: tócalos para agregar una parada.
         </p>
       </div>
     </div>
