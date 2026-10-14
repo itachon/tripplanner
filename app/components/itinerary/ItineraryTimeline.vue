@@ -13,7 +13,7 @@ export interface TimelineItem {
   /** número del pin en el mapa (solo paradas con lugar) */
   number?: number
   /** cómo se llega desde esta parada a la siguiente con lugar (a pie o en auto) */
-  legAfter?: { mode: 'walking' | 'driving', text: string } | null
+  legAfter?: { mode: 'walking' | 'driving', text: string | null, transitUrl: string | null } | null
 }
 
 const props = defineProps<{
@@ -152,10 +152,22 @@ function timeRange(it: TimelineItem) {
             <p v-if="it.notes" class="mt-1 whitespace-pre-line text-sm text-muted">
               {{ it.notes }}
             </p>
-            <p v-if="it.legAfter" class="mt-1.5 flex items-center gap-1 text-xs text-dimmed" data-testid="leg-after">
-              <UIcon :name="it.legAfter.mode === 'walking' ? 'i-lucide-footprints' : 'i-lucide-car'" class="size-3.5" />
-              {{ it.legAfter.mode === 'walking' ? 'A pie' : 'En auto' }} hasta la siguiente: {{ it.legAfter.text }}
-            </p>
+            <div v-if="it.legAfter" class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-dimmed" data-testid="leg-after" @click.stop>
+              <span v-if="it.legAfter.text" class="flex items-center gap-1">
+                <UIcon :name="it.legAfter.mode === 'walking' ? 'i-lucide-footprints' : 'i-lucide-car'" class="size-3.5" />
+                {{ it.legAfter.mode === 'walking' ? 'A pie' : 'En auto' }} hasta la siguiente: {{ it.legAfter.text }}
+              </span>
+              <a
+                v-if="it.legAfter.transitUrl"
+                :href="it.legAfter.transitUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="flex items-center gap-1 font-medium text-primary hover:underline"
+              >
+                <UIcon name="i-lucide-train-front" class="size-3.5" />
+                Ver en transporte público
+              </a>
+            </div>
           </div>
           <div v-if="$slots.actions || draggable" class="flex shrink-0 items-start gap-0.5" @click.stop>
             <span

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { WALK_MAX_M, directionsRequestUrl, distanceM, formatLeg, legsFor, parseDirections } from '../app/utils/route-legs.ts'
+import { WALK_MAX_M, directionsRequestUrl, distanceM, formatLeg, legsFor, parseDirections, transitUrl } from '../app/utils/route-legs.ts'
 
 // Seúl: Gyeongbokgung → Bukchon (~1 km) → Namsan (~4 km)
 const palace = { id: 's1', latitude: 37.5796, longitude: 126.977 }
@@ -48,6 +48,11 @@ test('parseDirections: sin rutas o con datos raros es null', () => {
   assert.equal(parseDirections({ code: 'NoRoute' }), null)
   assert.equal(parseDirections(null), null)
   assert.equal(parseDirections({ routes: [{ distance: 1, duration: 1, geometry: { coordinates: [[1, 2]] } }] }), null)
+})
+
+test('transitUrl: abre Google Maps en transporte público con origen y destino (lat,lng)', () => {
+  const [leg] = legsFor([bukchon, namsan])
+  assert.equal(transitUrl(leg!), 'https://www.google.com/maps/dir/?api=1&origin=37.5826,126.9837&destination=37.5512,126.9882&travelmode=transit')
 })
 
 test('formatLeg: metros, kilómetros con coma y minutos u horas', () => {

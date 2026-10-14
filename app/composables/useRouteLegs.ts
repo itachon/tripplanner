@@ -3,8 +3,10 @@ import type { LegRoute, RoutePoint } from '~/utils/route-legs'
 
 export interface LegInfo {
   mode: RouteMode
-  /** '1,2 km · 15 min' */
-  text: string
+  /** '1,2 km · 15 min' (null mientras no hay ruta) */
+  text: string | null
+  /** tramos largos: Google Maps en transporte público */
+  transitUrl: string | null
 }
 
 // Tramos ya consultados (null = Mapbox no encontró ruta o falló): se piden una vez por sesión
@@ -53,7 +55,9 @@ export function useRouteLegs(points: () => RoutePoint[]) {
     const map = new Map<string, LegInfo>()
     for (const leg of legs.value) {
       const r = results.value[leg.key]
-      if (r) map.set(leg.fromId, { mode: leg.mode, text: formatLeg(r.distance, r.duration) })
+      // El enlace a transporte público se ofrece aunque Mapbox no haya dado ruta
+      const transit = leg.mode === 'driving' ? transitUrl(leg) : null
+      if (r || transit) map.set(leg.fromId, { mode: leg.mode, text: r ? formatLeg(r.distance, r.duration) : null, transitUrl: transit })
     }
     return map
   })

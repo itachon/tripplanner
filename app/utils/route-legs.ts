@@ -65,6 +65,12 @@ export function directionsRequestUrl(leg: LegPlan, token: string) {
   return `https://api.mapbox.com/directions/v5/mapbox/${leg.mode}/${path}?geometries=geojson&overview=full&access_token=${encodeURIComponent(token)}`
 }
 
+/** Google Maps con la ruta en transporte público (buses, metro) para un tramo */
+export function transitUrl(leg: LegPlan) {
+  const ll = (p: [number, number]) => `${p[1]},${p[0]}`
+  return `https://www.google.com/maps/dir/?api=1&origin=${ll(leg.from)}&destination=${ll(leg.to)}&travelmode=transit`
+}
+
 /** Primera ruta de la respuesta, o null si no hay una usable */
 export function parseDirections(json: unknown): LegRoute | null {
   const r = (json as { routes?: { distance?: unknown, duration?: unknown, geometry?: { coordinates?: unknown } }[] } | null)?.routes?.[0]
