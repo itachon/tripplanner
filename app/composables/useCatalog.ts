@@ -1,5 +1,6 @@
 import type { AddPlaceResult, CatalogPatch, CatalogPlace, NewCatalogPlace, TripCover } from '~~/shared/types/catalog'
 import type { PlaceInfoRow } from '~/composables/useTripAdmin'
+import type { MapBox } from '~/utils/map-bounds'
 
 const MESSAGES: Record<string, string> = {
   PLACE_NOT_FOUND: 'Ese lugar ya no está disponible.',
@@ -49,6 +50,12 @@ export function useCatalog() {
     })) ?? []
   }
 
+  async function inBounds(box: MapBox, tripId: string): Promise<CatalogPlace[]> {
+    return unwrap<CatalogPlace[]>(await db.rpc('catalog_in_bounds', {
+      p_south: box.south, p_west: box.west, p_north: box.north, p_east: box.east, p_exclude_trip: tripId, p_limit: 200,
+    })) ?? []
+  }
+
   async function addExisting(tripId: string, catalogPlaceId: string): Promise<AddPlaceResult> {
     return unwrap<AddPlaceResult>(await db.rpc('trip_add_place', { p_trip_id: tripId, p_catalog_place_id: catalogPlaceId }))
   }
@@ -67,5 +74,5 @@ export function useCatalog() {
     return unwrap<TripCover[]>(await db.rpc('trip_covers')) ?? []
   }
 
-  return { byIds, infoByIds, search, near, addExisting, addNew, update, covers }
+  return { byIds, infoByIds, search, near, inBounds, addExisting, addNew, update, covers }
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Map as MapboxMap, Marker as MapboxMarker, GeoJSONSource, MapMouseEvent } from 'mapbox-gl'
 import type { MapMarker } from '~~/shared/types/map'
+import type { MapBox } from '~/utils/map-bounds'
 
 
 const props = withDefaults(defineProps<{
@@ -30,6 +31,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   select: [id: string | null]
   pick: [coords: { latitude: number, longitude: number, name?: string | null, category?: string | null }]
+  /** zona visible, al cargar y cada vez que el mapa deja de moverse */
+  bounds: [box: MapBox]
 }>()
 
 defineSlots<{
@@ -69,7 +72,12 @@ const TONES: Record<NonNullable<MapMarker['tone']>, string> = {
   neutral: 'bg-neutral-600 text-white',
   warning: 'bg-warning text-white',
   off: 'bg-sky-300 text-sky-950',
+  catalog: 'bg-sky-200/80 text-sky-800',
 }
+
+const small = (m: MapMarker) => m.tone === 'off' || m.tone === 'catalog'
+/** Los puntos del catálogo aparecen y desaparecen al mover el mapa: no deciden el encuadre */
+const tripMarkers = computed(() => props.markers.filter(m => m.tone !== 'catalog'))
 
 // El estilo va en un círculo interior: el <button> exterior es de Mapbox, que
 // le pone sus clases (mapboxgl-marker, position absolute) y lo ubica con
@@ -77,9 +85,10 @@ const TONES: Record<NonNullable<MapMarker['tone']>, string> = {
 function markerClass(m: MapMarker) {
   const active = m.id === activeId.value || m.id === props.highlightId
   return [
-    'trip-marker flex items-center justify-center rounded-full border-2 border-white shadow-md',
+    'trip-marker flex items-center justify-center rounded-full border-2 shadow-md',
     'font-bold transition-[scale,box-shadow] duration-150',
-    m.tone === 'off' ? 'size-6 text-[10px]' : 'size-8 text-xs',
+    m.tone === 'catalog' ? 'border-dashed border-sky-600' : 'border-white',
+    small(m) ? 'size-6 text-[10px]' : 'size-8 text-xs',
     TONES[m.tone ?? 'primary'],
     m.dimmed && !active ? 'opacity-55' : '',
     active ? 'scale-125 ring-4 ring-primary/35' : 'group-hover:scale-110',
@@ -111,7 +120,7 @@ function paintMarker(m: MapMarker, el: HTMLButtonElement, marker: MapboxMarker) 
   el.title = ''
   const active = m.id === activeId.value || m.id === props.highlightId
   // Mapbox ordena los marcadores por orden de inserción; subimos el activo
-  el.style.zIndex = active ? '5' : m.dimmed ? '1' : '2'
+  el.style.zIndex = active ? '5' : m.dimmed || m.tone === 'catalog' ? '1' : '2'
   const ll = marker.getLngLat()
   if (ll.lat !== m.latitude || ll.lng !== m.longitude) marker.setLngLat([m.longitude, m.latitude])
 }
@@ -142,16 +151,17 @@ function syncMarkers() {
 
 function fit(animate = true) {
   const m = map.value
-  if (!m || !mapboxgl || !props.markers.length) return
+  const pts = tripMarkers.value
+  if (!m || !mapboxgl || !pts.length) return
   if (!m.getContainer().clientWidth) return
   fitted = true
-  if (props.markers.length === 1) {
-    const p = props.markers[0]!
+  if (pts.length === 1) {
+    const p = pts[0]!
     m.easeTo({ center: [p.longitude, p.latitude], zoom: 14, duration: animate ? 600 : 0 })
     return
   }
   const b = new mapboxgl.LngLatBounds()
-  for (const p of props.markers) b.extend([p.longitude, p.latitude])
+  for (const p of pts) b.extend([p.longitude, p.latitude])
   m.fitBounds(b, { padding: 64, maxZoom: 15, duration: animate ? 600 : 0 })
 }
 
@@ -208,7 +218,13 @@ function syncPendingPin() {
   pendingMarker.setLngLat([p.longitude, p.latitude]).addTo(map.value)
 }
 
-watch(() => props.cooperative, (on) => { map.value?.setCooperativeGestures(on) })
+function emitBounds() {
+  const b = map.value?.getBounds()
+  if (!b || !map.value?.getContainer().clientWidth) return
+  emit('bounds', mapBox(b.getWest(), b.getSouth(), b.getEast(), b.getNorth()))
+}
+
+watch(() => props.cooperative,(on) => { map.value?.setCooperativeGestures(on) })
 
 function close() {
   pinnedId.value = null
@@ -278,7 +294,9 @@ onMounted(async () => {
     m.on('load', () => {
       loaded.value = true
       syncRoute()
+      emitBounds()
     })
+    m.on('moveend', emitBounds)
     m.on('error', (e) => {
       const status = (e.error as { status?: number } | undefined)?.status
       if (status === 401 || status === 403) mapError.value = 'El token de Mapbox no es válido o no tiene permiso para este dominio.'
@@ -312,6 +330,7 @@ onMounted(async () => {
         const mk = props.markers.find(x => x.id === pinnedId.value)
         if (mk) m.jumpTo({ center: [mk.longitude, mk.latitude], zoom: Math.max(m.getZoom(), 13) })
         else if (!fitted) fit(false)
+        emitBounds()
       }
       updateCardPos()
     })
@@ -337,7 +356,7 @@ watch([activeId, () => props.highlightId], syncMarkers)
 watch(() => props.route, syncRoute, { deep: true })
 watch(() => props.pendingPin, syncPendingPin, { deep: true })
 
-const idsKey = computed(() => props.markers.map(m => m.id).sort().join(','))
+const idsKey = computed(() => tripMarkers.value.map(m => m.id).sort().join(','))
 watch([idsKey, () => props.fitKey], () => nextTick(() => fit()))
 
 watch(() => props.picking, (on) => {

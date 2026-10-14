@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { DropdownMenuItem } from '@nuxt/ui'
 import type { PlaceSearchResult } from '~/composables/useMapbox'
-import type { Place } from '~/composables/useTripAdmin'
+import type { Place, PlaceInfoRow } from '~/composables/useTripAdmin'
+import type { MapBox } from '~/utils/map-bounds'
 import type { CatalogPlace } from '~~/shared/types/catalog'
 import type { MapMarker } from '~~/shared/types/map'
 import type { PlaceDraft } from './PlaceFormModal.vue'
@@ -110,14 +111,60 @@ const groups = computed(() => [
   { key: 'out', title: 'Guardados, fuera de la votación', items: list.value.filter(x => !x.votable) },
 ].filter(g => g.items.length))
 
-const markers = computed<MapMarker[]>(() => places.value.map(p => ({
-  id: p.id,
-  latitude: p.latitude,
-  longitude: p.longitude,
-  label: String(numberOf.value.get(p.id)),
-  tone: p.votable ? 'primary' : 'off',
-  title: p.name,
-})))
+// ---- Lugares del catálogo en la zona visible (celeste punteado, para sumarlos con un clic) ----
+const CAT = 'cat:'
+const catalogInView = ref<CatalogPlace[]>([])
+const catalogInfo = ref(new Map<string, PlaceInfoRow | null>())
+let lastBox: MapBox | null = null
+let boxSeq = 0
+
+async function loadCatalogInView(box: MapBox | null = lastBox) {
+  lastBox = box
+  if (!box || !trip.value) return
+  const mine = ++boxSeq
+  // Si la consulta falla, el mapa sigue mostrando los lugares del viaje
+  const found = await catalog.inBounds(box, trip.value.id).catch(() => null)
+  if (found && mine === boxSeq) catalogInView.value = found
+}
+// Al sumar o quitar un lugar del viaje cambia lo que el catálogo debe mostrar
+watch(() => places.value.map(p => p.catalog_place_id).join(','), () => loadCatalogInView())
+
+const catalogById = computed(() => new Map(catalogInView.value.map(c => [CAT + c.id, c])))
+
+// La ficha automática de un lugar del catálogo se pide al fijar su tarjeta
+watch(selectedId, async (id) => {
+  const c = id ? catalogById.value.get(id) : null
+  if (!c || catalogInfo.value.has(c.id)) return
+  const [info] = await catalog.infoByIds([c.id]).catch(() => [])
+  catalogInfo.value = new Map(catalogInfo.value).set(c.id, info ?? null)
+})
+
+const adding = ref<string | null>(null)
+async function addFromMap(c: CatalogPlace) {
+  if (adding.value) return
+  adding.value = c.id
+  await addFromCatalog(c)
+  adding.value = null
+}
+
+const markers = computed<MapMarker[]>(() => [
+  ...places.value.map(p => ({
+    id: p.id,
+    latitude: p.latitude,
+    longitude: p.longitude,
+    label: String(numberOf.value.get(p.id)),
+    tone: p.votable ? 'primary' as const : 'off' as const,
+    title: p.name,
+  })),
+  ...catalogInView.value.map(c => ({
+    id: CAT + c.id,
+    latitude: c.latitude,
+    longitude: c.longitude,
+    label: '+',
+    tone: 'catalog' as const,
+    title: `${c.name} (del catálogo)`,
+  })),
+])
 
 const placeById = computed(() => new Map(places.value.map(p => [p.id, p])))
 const detailPlace = computed(() => (detailId.value ? placeById.value.get(detailId.value) ?? null : null))
@@ -310,9 +357,43 @@ function showDetail(p: Place) {
         :pending-pin="pendingPin"
         @select="selectedId = $event"
         @pick="onPick"
+        @bounds="loadCatalogInView"
       >
         <template #card="{ marker, pinned, close }">
-          <UCard v-if="placeById.get(marker.id)" :ui="{ body: 'p-3 sm:p-3 max-h-[260px] overflow-y-auto', footer: 'px-3 py-2 sm:px-3' }" class="shadow-xl">
+          <UCard v-if="catalogById.get(marker.id)" :ui="{ body: 'p-3 sm:p-3 max-h-[260px] overflow-y-auto', footer: 'px-3 py-2 sm:px-3' }" class="shadow-xl">
+            <PlaceInfoCard
+              v-bind="{
+                name: catalogById.get(marker.id)!.name,
+                address: catalogById.get(marker.id)!.address,
+                category: catalogById.get(marker.id)!.category,
+                photoUrl: photoUrl(catalogById.get(marker.id)!.photo_path),
+                info: catalogInfo.get(catalogById.get(marker.id)!.id) ?? null,
+              }"
+              compact
+            />
+            <template #footer>
+              <div class="flex items-center justify-between gap-2 text-xs">
+                <span class="flex items-center gap-1 text-muted">
+                  <UIcon name="i-lucide-bookmark" class="size-3.5 text-sky-600" />
+                  En el catálogo
+                </span>
+                <div v-if="pinned" class="flex flex-wrap justify-end gap-1">
+                  <UButton
+                    size="xs"
+                    color="primary"
+                    variant="soft"
+                    icon="i-lucide-circle-plus"
+                    :loading="adding === catalogById.get(marker.id)!.id"
+                    @click="addFromMap(catalogById.get(marker.id)!)"
+                  >
+                    Agregar al viaje
+                  </UButton>
+                  <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" aria-label="Cerrar" @click="close" />
+                </div>
+              </div>
+            </template>
+          </UCard>
+          <UCard v-else-if="placeById.get(marker.id)" :ui="{ body: 'p-3 sm:p-3 max-h-[260px] overflow-y-auto', footer: 'px-3 py-2 sm:px-3' }" class="shadow-xl">
             <PlaceInfoCard
               v-bind="{
                 name: placeById.get(marker.id)!.name,
@@ -388,6 +469,9 @@ function showDetail(p: Place) {
       <template v-else>
         <p class="text-xs text-muted">
           {{ stats.places }} lugares · {{ stats.votable }} en votación · {{ stats.votes }} votos
+        </p>
+        <p v-if="catalogInView.length" class="text-xs text-muted">
+          Los puntos celestes punteados con "+" son lugares del catálogo: tócalos para agregarlos.
         </p>
         <template v-for="g in groups" :key="g.key">
           <div v-if="g.title" class="pt-2">
