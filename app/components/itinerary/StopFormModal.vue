@@ -8,6 +8,7 @@ const open = defineModel<boolean>('open', { default: false })
 const { trip, places, days, stopsByDay, refresh } = useTripCtx()
 const { client } = useDb()
 const catalog = useCatalog()
+const { enrichIfMissing } = usePlaceEnrich()
 const toast = useToast()
 
 // Los lugares del catálogo se eligen con este prefijo; al guardar se suman al viaje
@@ -108,6 +109,8 @@ async function onSubmit(e: FormSubmitEvent<typeof state>) {
   toast.add({ color: 'success', title: editing.value ? 'Parada actualizada' : 'Parada agregada' })
   open.value = false
   await refresh()
+  // un lugar del catálogo que nunca se buscó recibe su ficha automática
+  if (placeId && placeId !== e.data.placeId) enrichIfMissing(placeId)
 }
 </script>
 

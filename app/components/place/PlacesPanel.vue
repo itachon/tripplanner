@@ -13,7 +13,8 @@ const toast = useToast()
 const selectedId = ref<string | null>(null)
 const hoverId = ref<string | null>(null)
 const sortBy = ref<'order' | 'votes'>('votes')
-const enriching = ref(new Set<string>())
+// ---- Info automática (Overpass + Wikidata + Wikipedia + Commons, sin IA) ----
+const { enriching, enrich: enrichPlace, enrichIfMissing } = usePlaceEnrich()
 // Se guarda solo el id: así la ficha muestra los datos frescos tras cada refresh().
 const detailId = ref<string | null>(null)
 const deleteTarget = ref<Place | null>(null)
@@ -108,29 +109,12 @@ const adder = usePlaceAdder({
   onAdded: async (placeId, created) => {
     await refresh()
     selectedId.value = placeId
+    // un lugar nuevo, o uno del catálogo que nunca se buscó, recibe su ficha automática
     if (created) enrichPlace(placeId)
+    else enrichIfMissing(placeId)
   },
   onEdited: () => refresh(),
 })
-
-// ---- Info automática (Overpass + Wikidata + Wikipedia + Commons, sin IA) ----
-async function enrichPlace(id: string, force = false) {
-  if (enriching.value.has(id)) return
-  enriching.value = new Set(enriching.value).add(id)
-  try {
-    await $fetch(`/api/admin/places/${id}/enrich`, { method: 'POST', query: force ? { force: 1 } : undefined })
-    if (force) toast.add({ title: 'Info del lugar actualizada' })
-  }
-  catch (err) {
-    toast.add({ color: 'error', title: 'No se pudo buscar la info del lugar', description: errorMessage(err) })
-  }
-  finally {
-    const next = new Set(enriching.value)
-    next.delete(id)
-    enriching.value = next
-    await refresh()
-  }
-}
 
 // ---- Acciones ----
 function edit(p: Place) {

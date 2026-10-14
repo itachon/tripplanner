@@ -87,6 +87,8 @@ const markers = computed<MapMarker[]>(() => {
 // Los botones van en el pie de la tarjeta: así no se pierden al bajar por una ficha larga
 const CARD_UI = { body: 'p-3 sm:p-3 max-h-[260px] overflow-y-auto', footer: 'px-3 py-2 sm:px-3' }
 
+const { enriching, enrich, enrichIfMissing } = usePlaceEnrich()
+
 const dayForNewStop = () => (day.value === 'all' ? null : day.value)
 
 /** Formulario de parada nueva: también ofrece los lugares del catálogo que muestra el mapa */
@@ -108,7 +110,8 @@ const adder = usePlaceAdder({
     selectedPlace.value = null
     addStopAt(placeId)
     // la ficha automática (historia, horarios, foto) se busca de fondo
-    if (created) $fetch(`/api/admin/places/${placeId}/enrich`, { method: 'POST' }).then(() => refresh()).catch(() => {})
+    if (created) enrich(placeId)
+    else enrichIfMissing(placeId)
   },
   onEdited: () => refresh(),
 })
@@ -355,19 +358,29 @@ async function confirmDelete() {
                 <PlaceInfoCard
                   :name="placeById.get(marker.id)!.name"
                   :address="placeById.get(marker.id)!.address"
+                  :category="placeById.get(marker.id)!.category"
                   :description="placeById.get(marker.id)!.description"
                   :photo-url="photoUrl(placeById.get(marker.id)!.photo_path)"
                   :info="placeInfoByPlace.get(marker.id) ?? null"
+                  :loading="enriching.has(marker.id)"
                   compact
                 />
                 <template v-if="pinned" #footer>
-                  <div class="flex justify-end gap-1">
+                  <div class="flex flex-wrap justify-end gap-1">
                     <UButton size="xs" color="primary" variant="soft" icon="i-lucide-calendar-plus" @click="addStopAt(marker.id)">
                       Agregar parada
                     </UButton>
-                    <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click="close">
-                      Cerrar
+                    <UButton
+                      size="xs"
+                      color="neutral"
+                      variant="ghost"
+                      icon="i-lucide-search"
+                      :loading="enriching.has(marker.id)"
+                      @click="enrich(marker.id, true)"
+                    >
+                      Buscar info
                     </UButton>
+                    <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" aria-label="Cerrar" @click="close" />
                   </div>
                 </template>
               </UCard>
