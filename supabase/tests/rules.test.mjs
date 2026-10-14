@@ -409,6 +409,27 @@ check('catalog/: sin referencia, el creador sí la borra', (await delObj(B, `cat
 const fromItinerary = (await as('authenticated', C, 'select public.trip_add_place($1, $2, null, false) r', [otherTrip.id, cTorre])).rows[0].r
 check('un lugar del catálogo se puede sumar fuera de la votación', (await db.query('select votable from public.places where id = $1', [fromItinerary.place_id])).rows[0].votable === false)
 
+console.log('\nCategorías de lugares')
+const catOf = async (role, tag) => (await as(role, null, 'select category_key from public.place_category_tags where tag = $1', [tag])).rows[0]?.category_key
+check('anon lee las categorías', (await as('anon', null, 'select count(*)::int n from public.place_categories')).rows[0].n >= 13)
+check('un organizador lee las etiquetas', (await as('authenticated', A, 'select count(*)::int n from public.place_category_tags')).rows[0].n > 13)
+check('existe la categoría Otros', (await catOf('anon', 'other')) === 'other')
+check('cada categoría existe también como etiqueta', (await db.query('select count(*)::int n from public.place_categories c where not exists (select 1 from public.place_category_tags t where t.tag = c.key and t.category_key = c.key)')).rows[0].n === 0)
+check('las etiquetas guardadas hoy resuelven a su categoría',
+  (await catOf('anon', 'arts_and_entertainment')) === 'culture'
+  && (await catOf('anon', 'lodging')) === 'lodging'
+  && (await catOf('anon', 'palacio')) === 'monument'
+  && (await catOf('anon', 'landmark')) === 'monument'
+  && (await catOf('anon', 'historic')) === 'monument')
+check('los alias en español resuelven', (await catOf('anon', 'museo')) === 'museum' && (await catOf('anon', 'hotel')) === 'lodging')
+check('label_es es la última columna', (await db.query(`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'place_categories' order by ordinal_position desc limit 1`)).rows[0].column_name === 'label_es')
+const writeDenied = msg => /permission denied|row-level security/.test(msg ?? '')
+check('nadie inserta categorías', writeDenied(await err('authenticated', A, `insert into public.place_categories (key, icon, color, sort_order, label_es) values ('x', 'i-lucide-x', '#000000', 99, 'X')`)) && writeDenied(await err('anon', null, `insert into public.place_categories (key, icon, color, sort_order, label_es) values ('y', 'i-lucide-x', '#000000', 99, 'Y')`)))
+check('nadie cambia etiquetas', writeDenied(await err('authenticated', A, `insert into public.place_category_tags (tag, category_key) values ('nueva', 'other')`)) && (await as('authenticated', A, `update public.place_categories set label_es = 'X' where key = 'museum' returning key`).catch(() => ({ rows: [] }))).rows.length === 0)
+check('nadie borra categorías', (await as('authenticated', A, `delete from public.place_category_tags where tag = 'museo' returning tag`).catch(() => ({ rows: [] }))).rows.length === 0 && (await catOf('anon', 'museo')) === 'museum')
+check('una etiqueta con mayúsculas o espacios se rechaza', /check/i.test(await err('service_role', null, `insert into public.place_category_tags (tag, category_key) values (' Museo', 'museum')`) ?? ''))
+check('un color mal escrito se rechaza', /check/i.test(await err('service_role', null, `insert into public.place_categories (key, icon, color, sort_order, label_es) values ('z', 'i-lucide-x', 'rojo', 99, 'Z')`) ?? ''))
+
 console.log('\nStorage')
 check('B sube foto a su viaje', !(await err('authenticated', B, `insert into storage.objects (bucket_id, name) values ('place-photos', $1)`, [`${trip.id}/a.webp`])))
 check('C no sube al viaje de A', /row-level security/.test(await err('authenticated', C, `insert into storage.objects (bucket_id, name) values ('place-photos', $1)`, [`${trip.id}/x.webp`])))
